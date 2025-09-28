@@ -51,48 +51,33 @@ async function downloadFile(url, filepath) {
   });
 }
 
-async function hasAudioStream(videoPath) {
-  return new Promise(resolve => {
-    ffmpeg.ffprobe(videoPath, (err, metadata) => {
-      if (err) return resolve(false);
-      const hasAudio = metadata.streams.some(s => s.codec_type === 'audio');
-      resolve(hasAudio);
-    });
-  });
-}
-
 /* ----------------- Core Mixing Function ----------------- */
 async function mixVideoWithAudio(videoPath, dialoguePath, musicPath, outputPath) {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const command = ffmpeg(videoPath);
+  return new Promise((resolve, reject) => {
+    const command = ffmpeg(videoPath);
 
-      command.input(dialoguePath);
-      command.input(musicPath);
+    command.input(dialoguePath);
+    command.input(musicPath);
 
-      // build audio filters
-      const complexFilters = [
-        '[1:a]volume=1.0[dialogue]',
-        '[2:a]volume=0.6[music]',
-        '[dialogue][music]amix=inputs=2:duration=longest[aout]'
-      ];
+    const complexFilters = [
+      '[1:a]volume=1.0[dialogue]', // keep dialogue clear
+      '[2:a]volume=0.6[music]',   // background music lower
+      '[dialogue][music]amix=inputs=2:duration=longest[aout]'
+    ];
 
-      command
-        .complexFilter(complexFilters)
-        .map('[aout]')
-        .outputOptions(['-c:v copy', '-c:a aac', '-shortest'])
-        .save(outputPath)
-        .on('end', () => {
-          console.log('✅ Video + audio mix completed');
-          resolve();
-        })
-        .on('error', err => {
-          console.error('❌ FFmpeg mix error:', err);
-          reject(err);
-        });
-    } catch (err) {
-      reject(err);
-    }
+    command
+      .complexFilter(complexFilters)
+      .map('[aout]')
+      .outputOptions(['-c:v copy', '-c:a aac', '-shortest'])
+      .save(outputPath)
+      .on('end', () => {
+        console.log('✅ Video + audio mix completed');
+        resolve();
+      })
+      .on('error', err => {
+        console.error('❌ FFmpeg mix error:', err);
+        reject(err);
+      });
   });
 }
 
@@ -106,14 +91,14 @@ app.get('/health', (req, res) => {
 /**
  * POST /api/combine
  * Mix stitched video + dialogue + music into final output
- * Accepts either uploaded files or URLs
+ * Accepts either uploaded files or JSON URLs
  */
 app.post(
   '/api/combine',
   upload.fields([
     { name: 'final_stitched_video', maxCount: 1 },
     { name: 'final_dialogue', maxCount: 1 },
-    { name: 'final_music', maxCount: 1 }
+    { name: 'final_music_url', maxCount: 1 }
   ]),
   async (req, res) => {
     try {
@@ -122,25 +107,27 @@ app.post(
       const id = uuidv4();
       const outputFile = path.join(OUTPUT_DIR, `${id}_final.mp4`);
 
-      // Get paths from either upload or URL
       let videoPath, dialoguePath, musicPath;
 
+      // --- handle stitched video ---
       if (req.files['final_stitched_video']) {
         videoPath = req.files['final_stitched_video'][0].path;
-      } else if (req.body.final_stitched_video_url) {
+      } else if (req.body.final_stitched_video) {
         videoPath = path.join(TEMP_DIR, `${id}_video.mp4`);
-        await downloadFile(req.body.final_stitched_video_url, videoPath);
+        await downloadFile(req.body.final_stitched_video, videoPath);
       }
 
+      // --- handle dialogue ---
       if (req.files['final_dialogue']) {
         dialoguePath = req.files['final_dialogue'][0].path;
-      } else if (req.body.final_dialogue_url) {
+      } else if (req.body.final_dialogue) {
         dialoguePath = path.join(TEMP_DIR, `${id}_dialogue.mp3`);
-        await downloadFile(req.body.final_dialogue_url, dialoguePath);
+        await downloadFile(req.body.final_dialogue, dialoguePath);
       }
 
-      if (req.files['final_music']) {
-        musicPath = req.files['final_music'][0].path;
+      // --- handle music ---
+      if (req.files['final_music_url']) {
+        musicPath = req.files['final_music_url'][0].path;
       } else if (req.body.final_music_url) {
         musicPath = path.join(TEMP_DIR, `${id}_music.mp3`);
         await downloadFile(req.body.final_music_url, musicPath);
