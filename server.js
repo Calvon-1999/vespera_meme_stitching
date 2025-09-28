@@ -155,17 +155,40 @@ async function stitchVideos(videoPaths, outputPath) {
     });
 }
 
-async function addAudioAndOverlayToVideo(videoPath, audioPath, outputPath, overlayImagePath = null, overlayOptions = {}) {
+// Enhanced function to handle video, music, and dialogue audio
+async function addAudioAndOverlayToVideo(videoPath, musicPath, dialoguePath, outputPath, overlayImagePath = null, overlayOptions = {}) {
     return new Promise(async (resolve, reject) => {
         try {
             const command = ffmpeg(videoPath);
-            command.input(audioPath);
+            let inputIndex = 1;
+            
+            // Add music input
+            command.input(musicPath);
+            const musicIndex = inputIndex++;
+            
+            // Add dialogue input if provided
+            let dialogueIndex = null;
+            if (dialoguePath) {
+                command.input(dialoguePath);
+                dialogueIndex = inputIndex++;
+            }
             
             const videoHasAudio = await hasAudioStream(videoPath);
             
+            // Add overlay image if provided
+            let overlayIndex = null;
             if (overlayImagePath) {
                 command.input(overlayImagePath);
-                
+                overlayIndex = inputIndex++;
+            }
+            
+            // Build the complex filter
+            let complexFilters = [];
+            let videoOutput = '0:v';
+            let audioInputs = [];
+            
+            // Handle overlay image
+            if (overlayImagePath) {
                 const {
                     position = 'bottom-right',
                     size = '150',
@@ -194,54 +217,50 @@ async function addAudioAndOverlayToVideo(videoPath, audioPath, outputPath, overl
                         break;
                 }
                 
-                if (videoHasAudio) {
-                    const complexFilter = `[2:v]scale=${size}:-1[overlay]; [0:v][overlay]overlay=${x}:${y}:format=auto,format=yuv420p[v]; [1:a]volume=-2dB[music]; [0:a][music]amix=inputs=2:duration=shortest[mixedaudio]`;
-                    
-                    command
-                        .complexFilter(complexFilter)
-                        .outputOptions([
-                            '-map', '[v]',
-                            '-map', '[mixedaudio]',
-                            '-c:a', 'aac',
-                            '-shortest'
-                        ]);
-                } else {
-                    const overlayFilter = `[2:v]scale=${size}:-1[overlay]; [0:v][overlay]overlay=${x}:${y}:format=auto,format=yuv420p[v]; [1:a]volume=-2dB[music]`;
-                    
-                    command
-                        .complexFilter(overlayFilter)
-                        .outputOptions([
-                            '-map', '[v]',
-                            '-map', '[music]',
-                            '-c:a', 'aac',
-                            '-shortest'
-                        ]);
-                }
-            } else {
-                if (videoHasAudio) {
-                    const audioFilter = `[1:a]volume=-2dB[music]; [0:a][music]amix=inputs=2:duration=shortest[mixedaudio]`;
-                    
-                    command
-                        .complexFilter(audioFilter)
-                        .outputOptions([
-                            '-map', '0:v:0',
-                            '-map', '[mixedaudio]',
-                            '-c:v', 'copy',
-                            '-c:a', 'aac',
-                            '-shortest'
-                        ]);
-                } else {
-                    command
-                        .complexFilter('[1:a]volume=-2dB[music]')
-                        .outputOptions([
-                            '-map', '0:v:0',
-                            '-map', '[music]',
-                            '-c:v', 'copy',
-                            '-c:a', 'aac',
-                            '-shortest'
-                        ]);
-                }
+                complexFilters.push(`[${overlayIndex}:v]scale=${size}:-1[overlay]`);
+                complexFilters.push(`[0:v][overlay]overlay=${x}:${y}:format=auto,format=yuv420p[v]`);
+                videoOutput = '[v]';
             }
+            
+            // Process audio streams
+            // Music with -1.5dB volume
+            complexFilters.push(`[${musicIndex}:a]volume=-1.5dB[music]`);
+            audioInputs.push('[music]');
+            
+            // Add dialogue if provided (normal volume)
+            if (dialogueIndex !== null) {
+                complexFilters.push(`[${dialogueIndex}:a]volume=0dB[dialogue]`);
+                audioInputs.push('[dialogue]');
+            }
+            
+            // Add original video audio if it exists
+            if (videoHasAudio) {
+                complexFilters.push(`[0:a]volume=0dB[videoaudio]`);
+                audioInputs.push('[videoaudio]');
+            }
+            
+            // Mix all audio inputs
+            if (audioInputs.length > 1) {
+                const mixFilter = `${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=shortest[mixedaudio]`;
+                complexFilters.push(mixFilter);
+            } else if (audioInputs.length === 1) {
+                // Just one audio source, rename it
+                complexFilters.push(`[music]acopy[mixedaudio]`);
+            }
+            
+            // Apply all filters
+            if (complexFilters.length > 0) {
+                command.complexFilter(complexFilters.join('; '));
+            }
+            
+            // Set output mappings
+            command.outputOptions([
+                '-map', videoOutput,
+                '-map', '[mixedaudio]',
+                '-c:v', overlayImagePath ? 'libx264' : 'copy',
+                '-c:a', 'aac',
+                '-shortest'
+            ]);
 
             command
                 .output(outputPath)
@@ -323,7 +342,7 @@ app.post('/api/add-overlay', async (req, res) => {
     console.log(`Starting overlay job ${jobId}`);
     
     try {
-        const { final_stitch_video, final_music_url, overlay_image_url, overlay_options } = req.body;
+        const { final_stitch_video, final_music_url, final_dialogue, overlay_image_url, overlay_options } = req.body;
         
         if (!final_stitch_video || !final_music_url) {
             return res.status(400).json({ 
@@ -338,22 +357,29 @@ app.post('/api/add-overlay', async (req, res) => {
         const videoPath = path.join(jobDir, 'input_video.mp4');
         await downloadFile(final_stitch_video, videoPath);
 
-        console.log('Step 2: Processing audio...');
-        const audioPath = path.join(jobDir, 'audio.mp3');
-        const trimmedAudioPath = path.join(jobDir, 'audio_trimmed.mp3');
-        await downloadFile(final_music_url, audioPath);
-        await trimAudio(audioPath, trimmedAudioPath, 60);
+        console.log('Step 2: Processing music audio...');
+        const musicPath = path.join(jobDir, 'music.mp3');
+        const trimmedMusicPath = path.join(jobDir, 'music_trimmed.mp3');
+        await downloadFile(final_music_url, musicPath);
+        await trimAudio(musicPath, trimmedMusicPath, 60);
+
+        let dialoguePath = null;
+        if (final_dialogue) {
+            console.log('Step 3: Processing dialogue audio...');
+            dialoguePath = path.join(jobDir, 'dialogue.mp3');
+            await downloadFile(final_dialogue, dialoguePath);
+        }
 
         let overlayImagePath = null;
         if (overlay_image_url) {
-            console.log('Step 3: Downloading overlay image...');
+            console.log(`Step ${final_dialogue ? '4' : '3'}: Downloading overlay image...`);
             overlayImagePath = path.join(jobDir, 'overlay_image.png');
             await downloadFile(overlay_image_url, overlayImagePath);
         }
 
-        console.log('Step 4: Adding audio and overlay...');
+        console.log(`Step ${final_dialogue && overlay_image_url ? '5' : final_dialogue || overlay_image_url ? '4' : '3'}: Adding audio and overlay...`);
         const finalVideoPath = path.join(OUTPUT_DIR, `final_video_${jobId}.mp4`);
-        await addAudioAndOverlayToVideo(videoPath, trimmedAudioPath, finalVideoPath, overlayImagePath, overlay_options || {});
+        await addAudioAndOverlayToVideo(videoPath, trimmedMusicPath, dialoguePath, finalVideoPath, overlayImagePath, overlay_options || {});
 
         const finalDuration = await getVideoDuration(finalVideoPath);
         const stats = await fs.stat(finalVideoPath);
@@ -372,8 +398,13 @@ app.post('/api/add-overlay', async (req, res) => {
                 fileSize: stats.size,
                 fileSizeMB: (stats.size / (1024 * 1024)).toFixed(2)
             },
+            audioTracksAdded: {
+                music: true,
+                dialogue: !!final_dialogue,
+                originalVideoAudio: await hasAudioStream(videoPath)
+            },
             overlayApplied: !!overlay_image_url,
-            message: 'Successfully added audio and overlay to video'
+            message: `Successfully added ${final_dialogue ? 'music, dialogue' : 'music'} and ${overlay_image_url ? 'overlay' : 'no overlay'} to video`
         });
 
     } catch (error) {
@@ -448,7 +479,7 @@ app.post('/api/stitch-videos', async (req, res) => {
     console.log(`Starting video stitching job ${jobId}`);
     
     try {
-        const { videos, mv_audio, overlay_image_url, overlay_options } = req.body;
+        const { videos, mv_audio, final_dialogue, overlay_image_url, overlay_options } = req.body;
         
         if (!videos || !Array.isArray(videos) || !mv_audio) {
             return res.status(400).json({ 
@@ -459,20 +490,27 @@ app.post('/api/stitch-videos', async (req, res) => {
         const jobDir = path.join(TEMP_DIR, jobId);
         await fs.mkdir(jobDir, { recursive: true });
 
-        console.log('Step 1: Processing audio...');
-        const audioPath = path.join(jobDir, 'audio.mp3');
-        const trimmedAudioPath = path.join(jobDir, 'audio_trimmed.mp3');
-        await downloadFile(mv_audio, audioPath);
-        await trimAudio(audioPath, trimmedAudioPath, 60);
+        console.log('Step 1: Processing music audio...');
+        const musicPath = path.join(jobDir, 'music.mp3');
+        const trimmedMusicPath = path.join(jobDir, 'music_trimmed.mp3');
+        await downloadFile(mv_audio, musicPath);
+        await trimAudio(musicPath, trimmedMusicPath, 60);
+
+        let dialoguePath = null;
+        if (final_dialogue) {
+            console.log('Step 2: Processing dialogue audio...');
+            dialoguePath = path.join(jobDir, 'dialogue.mp3');
+            await downloadFile(final_dialogue, dialoguePath);
+        }
 
         let overlayImagePath = null;
         if (overlay_image_url) {
-            console.log('Step 2: Downloading overlay image...');
+            console.log(`Step ${final_dialogue ? '3' : '2'}: Downloading overlay image...`);
             overlayImagePath = path.join(jobDir, 'overlay_image.png');
             await downloadFile(overlay_image_url, overlayImagePath);
         }
 
-        console.log('Step 3: Sorting and downloading videos...');
+        console.log(`Step ${final_dialogue && overlay_image_url ? '4' : final_dialogue || overlay_image_url ? '3' : '2'}: Sorting and downloading videos...`);
         const sortedVideos = videos.sort((a, b) => {
             const sceneA = parseInt(a.scene_number, 10);
             const sceneB = parseInt(b.scene_number, 10);
@@ -490,13 +528,13 @@ app.post('/api/stitch-videos', async (req, res) => {
             console.log(`Downloaded video ${i + 1}/${sortedVideos.length}: Scene ${video.scene_number}`);
         }
 
-        console.log('Step 4: Stitching videos...');
+        console.log(`Step ${final_dialogue && overlay_image_url ? '5' : final_dialogue || overlay_image_url ? '4' : '3'}: Stitching videos...`);
         const stitchedVideoPath = path.join(jobDir, 'stitched_video.mp4');
         await stitchVideos(videoPaths, stitchedVideoPath);
 
-        console.log('Step 5: Adding audio and overlay to final video...');
+        console.log(`Step ${final_dialogue && overlay_image_url ? '6' : final_dialogue || overlay_image_url ? '5' : '4'}: Adding audio and overlay to final video...`);
         const finalVideoPath = path.join(OUTPUT_DIR, `final_video_${jobId}.mp4`);
-        await addAudioAndOverlayToVideo(stitchedVideoPath, trimmedAudioPath, finalVideoPath, overlayImagePath, overlay_options || {});
+        await addAudioAndOverlayToVideo(stitchedVideoPath, trimmedMusicPath, dialoguePath, finalVideoPath, overlayImagePath, overlay_options || {});
 
         const finalDuration = await getVideoDuration(finalVideoPath);
         const stats = await fs.stat(finalVideoPath);
@@ -517,8 +555,12 @@ app.post('/api/stitch-videos', async (req, res) => {
             },
             processedVideos: videos.length,
             sceneOrder: sortedVideos.map(v => parseInt(v.scene_number, 10)),
+            audioTracksAdded: {
+                music: true,
+                dialogue: !!final_dialogue
+            },
             overlayApplied: !!overlay_image_url,
-            message: `Successfully processed ${videos.length} videos with 1-minute audio track${overlay_image_url ? ' and image overlay' : ''}`
+            message: `Successfully processed ${videos.length} videos with music${final_dialogue ? ', dialogue' : ''} audio track${overlay_image_url ? ' and image overlay' : ''}`
         });
 
     } catch (error) {
@@ -668,24 +710,30 @@ app.get('/api/status/:jobId', async (req, res) => {
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'OK', 
-        service: 'Integrated Video Processing Service',
+        service: 'Enhanced Video Processing Service with Dialogue',
         timestamp: new Date().toISOString()
     });
 });
 
 app.get('/', (req, res) => {
     res.json({
-        service: 'Integrated Video Processing Service',
-        version: '5.0.0',
+        service: 'Enhanced Video Processing Service with Dialogue',
+        version: '6.0.0',
         endpoints: {
-            addOverlay: 'POST /api/add-overlay (single video + audio + overlay)',
+            addOverlay: 'POST /api/add-overlay (single video + music + dialogue + overlay)',
             addImageOverlay: 'POST /api/add-image-overlay (image + overlay)',
-            stitchVideos: 'POST /api/stitch-videos (multiple videos + audio + overlay)',
+            stitchVideos: 'POST /api/stitch-videos (multiple videos + music + dialogue + overlay)',
             download: 'GET /download/:jobId (download video file)',
             downloadImage: 'GET /download-image/:jobId (download image file)',
             stream: 'GET /stream/:jobId (stream video in browser)',
             status: 'GET /api/status/:jobId (check job status)',
             health: 'GET /health'
+        },
+        audioMixing: {
+            musicVolume: '-1.5dB',
+            dialogueVolume: '0dB (normal)',
+            videoAudioVolume: '0dB (normal)',
+            mixingMethod: 'amix with shortest duration'
         }
     });
 });
@@ -694,9 +742,10 @@ async function startServer() {
     await ensureDirectories();
     
     app.listen(PORT, () => {
-        console.log(`Integrated Video Processing Service running on port ${PORT}`);
+        console.log(`Enhanced Video Processing Service with Dialogue running on port ${PORT}`);
         console.log(`Health check: http://localhost:${PORT}/health`);
         console.log(`API documentation: http://localhost:${PORT}/`);
+        console.log('Audio mixing: Music (-1.5dB), Dialogue (0dB), Video Audio (0dB)');
     });
 }
 
