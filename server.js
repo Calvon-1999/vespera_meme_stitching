@@ -40,11 +40,16 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
       .input(musicPath)
       .complexFilter([
         "[1:a]volume=1.0[dialogue]",
-        "[2:a]volume=0.85[music]", // -1.5 dB
+        "[2:a]volume=0.85[music]", // ~ -1.5 dB
         "[dialogue][music]amix=inputs=2:duration=longest[aout]"
       ])
-      .map("[aout]")
-      .outputOptions(["-c:v copy", "-c:a aac", "-shortest"])
+      .outputOptions([
+        "-map 0:v",      // ✅ keep original video stream
+        "-map [aout]",   // ✅ use our mixed audio
+        "-c:v copy",     // don’t re-encode video
+        "-c:a aac",      // encode audio to AAC for MP4
+        "-shortest"      // cut off extra audio if longer
+      ])
       .save(outputPath)
       .on("end", () => resolve())
       .on("error", (err) => reject(err));
@@ -70,10 +75,12 @@ app.post("/api/combine", async (req, res) => {
     const musicPath = path.join(TEMP_DIR, `${id}_music.mp3`);
     const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
 
+    // Download files
     await downloadFile(final_stitched_video, videoPath);
     await downloadFile(final_dialogue, dialoguePath);
     await downloadFile(final_music_url, musicPath);
 
+    // Mix video + audio
     await mixVideo(videoPath, dialoguePath, musicPath, outputPath);
 
     res.json({
@@ -81,11 +88,12 @@ app.post("/api/combine", async (req, res) => {
       download_url: `/download/${path.basename(outputPath)}`
     });
   } catch (err) {
-    console.error(err);
+    console.error("❌ Processing failed:", err);
     res.status(500).json({ error: "Processing failed", details: err.message });
   }
 });
 
+// Serve the combined videos
 app.use("/download", express.static(OUTPUT_DIR));
 
 app.listen(PORT, () =>
