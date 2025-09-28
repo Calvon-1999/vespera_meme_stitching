@@ -19,7 +19,7 @@ app.use(express.static('public'));
 
 const upload = multer({
   dest: '/tmp/uploads/',
-  limits: { fileSize: 50 * 1024 * 1024 } // allow bigger uploads
+  limits: { fileSize: 50 * 1024 * 1024 }
 });
 
 const TEMP_DIR = '/tmp';
@@ -60,8 +60,8 @@ async function mixVideoWithAudio(videoPath, dialoguePath, musicPath, outputPath)
     command.input(musicPath);
 
     const complexFilters = [
-      '[1:a]volume=1.0[dialogue]', // keep dialogue clear
-      '[2:a]volume=0.6[music]',   // background music lower
+      '[1:a]volume=1.0[dialogue]',
+      '[2:a]volume=0.6[music]',
       '[dialogue][music]amix=inputs=2:duration=longest[aout]'
     ];
 
@@ -90,8 +90,7 @@ app.get('/health', (req, res) => {
 
 /**
  * POST /api/combine
- * Mix stitched video + dialogue + music into final output
- * Accepts either uploaded files or JSON URLs
+ * Accepts either file uploads OR JSON with URLs
  */
 app.post(
   '/api/combine',
@@ -102,6 +101,7 @@ app.post(
   ]),
   async (req, res) => {
     try {
+      console.log('Incoming body:', req.body); // 👈 debug log
       await ensureDirectories();
 
       const id = uuidv4();
@@ -109,7 +109,7 @@ app.post(
 
       let videoPath, dialoguePath, musicPath;
 
-      // --- handle stitched video ---
+      // stitched video
       if (req.files['final_stitched_video']) {
         videoPath = req.files['final_stitched_video'][0].path;
       } else if (req.body.final_stitched_video) {
@@ -117,7 +117,7 @@ app.post(
         await downloadFile(req.body.final_stitched_video, videoPath);
       }
 
-      // --- handle dialogue ---
+      // dialogue
       if (req.files['final_dialogue']) {
         dialoguePath = req.files['final_dialogue'][0].path;
       } else if (req.body.final_dialogue) {
@@ -125,7 +125,7 @@ app.post(
         await downloadFile(req.body.final_dialogue, dialoguePath);
       }
 
-      // --- handle music ---
+      // music
       if (req.files['final_music_url']) {
         musicPath = req.files['final_music_url'][0].path;
       } else if (req.body.final_music_url) {
@@ -144,6 +144,7 @@ app.post(
         file: `/download/${path.basename(outputFile)}`
       });
     } catch (err) {
+      console.error('❌ Combine error:', err);
       res.status(500).json({ error: 'Processing failed', details: err.message });
     }
   }
