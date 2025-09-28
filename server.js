@@ -35,6 +35,7 @@ async function ensureDirectories() {
 }
 
 async function downloadFile(url, filepath) {
+  console.log(`⬇️ Downloading: ${url} -> ${filepath}`);
   const response = await axios({
     method: 'GET',
     url,
@@ -46,7 +47,10 @@ async function downloadFile(url, filepath) {
   response.data.pipe(writer);
 
   return new Promise((resolve, reject) => {
-    writer.on('finish', resolve);
+    writer.on('finish', () => {
+      console.log(`✅ Download complete: ${filepath}`);
+      resolve();
+    });
     writer.on('error', reject);
   });
 }
@@ -54,14 +58,15 @@ async function downloadFile(url, filepath) {
 /* ----------------- Core Mixing Function ----------------- */
 async function mixVideoWithAudio(videoPath, dialoguePath, musicPath, outputPath) {
   return new Promise((resolve, reject) => {
+    console.log('🎬 Starting ffmpeg mix...');
     const command = ffmpeg(videoPath);
 
     command.input(dialoguePath);
     command.input(musicPath);
 
     const complexFilters = [
-      '[1:a]volume=1.0[dialogue]',
-      '[2:a]volume=0.6[music]',
+      '[1:a]volume=1.0[dialogue]', // dialogue clear
+      '[2:a]volume=0.6[music]',   // music softer
       '[dialogue][music]amix=inputs=2:duration=longest[aout]'
     ];
 
@@ -71,7 +76,7 @@ async function mixVideoWithAudio(videoPath, dialoguePath, musicPath, outputPath)
       .outputOptions(['-c:v copy', '-c:a aac', '-shortest'])
       .save(outputPath)
       .on('end', () => {
-        console.log('✅ Video + audio mix completed');
+        console.log('✅ Video + audio mix completed:', outputPath);
         resolve();
       })
       .on('error', err => {
@@ -90,7 +95,9 @@ app.get('/health', (req, res) => {
 
 /**
  * POST /api/combine
- * Accepts either file uploads OR JSON with URLs
+ * Accepts either:
+ *  - JSON body with URLs (from n8n)
+ *  - multipart/form-data with uploaded files
  */
 app.post(
   '/api/combine',
@@ -101,8 +108,10 @@ app.post(
   ]),
   async (req, res) => {
     try {
-      console.log('Incoming body:', req.body); // 👈 debug log
       await ensureDirectories();
+      console.log('📩 Incoming combine request');
+      console.log('Body:', req.body);
+      console.log('Files:', req.files);
 
       const id = uuidv4();
       const outputFile = path.join(OUTPUT_DIR, `${id}_final.mp4`);
@@ -110,7 +119,7 @@ app.post(
       let videoPath, dialoguePath, musicPath;
 
       // stitched video
-      if (req.files['final_stitched_video']) {
+      if (req.files && req.files['final_stitched_video']) {
         videoPath = req.files['final_stitched_video'][0].path;
       } else if (req.body.final_stitched_video) {
         videoPath = path.join(TEMP_DIR, `${id}_video.mp4`);
@@ -118,7 +127,7 @@ app.post(
       }
 
       // dialogue
-      if (req.files['final_dialogue']) {
+      if (req.files && req.files['final_dialogue']) {
         dialoguePath = req.files['final_dialogue'][0].path;
       } else if (req.body.final_dialogue) {
         dialoguePath = path.join(TEMP_DIR, `${id}_dialogue.mp3`);
@@ -126,7 +135,7 @@ app.post(
       }
 
       // music
-      if (req.files['final_music_url']) {
+      if (req.files && req.files['final_music_url']) {
         musicPath = req.files['final_music_url'][0].path;
       } else if (req.body.final_music_url) {
         musicPath = path.join(TEMP_DIR, `${id}_music.mp3`);
@@ -134,7 +143,10 @@ app.post(
       }
 
       if (!videoPath || !dialoguePath || !musicPath) {
-        return res.status(400).json({ error: 'Missing video, dialogue, or music input' });
+        return res.status(400).json({
+          error: 'Missing video, dialogue, or music input',
+          got: { videoPath, dialoguePath, musicPath }
+        });
       }
 
       await mixVideoWithAudio(videoPath, dialoguePath, musicPath, outputFile);
@@ -145,7 +157,10 @@ app.post(
       });
     } catch (err) {
       console.error('❌ Combine error:', err);
-      res.status(500).json({ error: 'Processing failed', details: err.message });
+      res.status(500).json({
+        error: 'Processing failed',
+        details: err.message
+      });
     }
   }
 );
