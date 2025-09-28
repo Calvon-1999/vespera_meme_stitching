@@ -6,6 +6,12 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
 
+const ffmpeg = require('fluent-ffmpeg');
+
+// Explicitly set paths for Railway/Docker
+ffmpeg.setFfmpegPath('/usr/bin/ffmpeg');
+ffmpeg.setFfprobePath('/usr/bin/ffprobe');
+
 const app = express();
 const PORT = process.env.PORT || 8080;
 
