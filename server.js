@@ -43,8 +43,8 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
     try {
       // Get music duration to calculate fade out timing
       const musicDuration = await getAudioDuration(musicPath);
-      const fadeInDuration = 1.5; // 1.5 seconds fade in
-      const fadeOutDuration = 1.5; // 1.5 seconds fade out
+      const fadeInDuration = 2.5; // 2.5 seconds fade in
+      const fadeOutDuration = 2.5; // 2.5 seconds fade out
       const fadeOutStart = musicDuration - fadeOutDuration;
       
       const cmd = ffmpeg(videoPath);
