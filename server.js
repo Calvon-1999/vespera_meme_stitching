@@ -5,17 +5,13 @@ const fs = require("fs");
 const fsp = require("fs").promises;
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
-
 const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path;
 const ffprobePath = require("@ffprobe-installer/ffprobe").path;
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
-
 const app = express();
 const PORT = process.env.PORT || 8080;
-
 app.use(express.json({ limit: "50mb" }));
-
 const TEMP_DIR = "/tmp";
 const OUTPUT_DIR = path.join(TEMP_DIR, "output");
 
@@ -35,20 +31,37 @@ async function downloadFile(url, filepath) {
 
 async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
   return new Promise((resolve, reject) => {
-    ffmpeg(videoPath)
-      .input(dialoguePath)
-      .input(musicPath)
-      .complexFilter([
+    const cmd = ffmpeg(videoPath);
+    
+    // Add inputs conditionally
+    if (dialoguePath) {
+      cmd.input(dialoguePath);
+    }
+    cmd.input(musicPath);
+    
+    // Build complex filter based on whether dialogue exists
+    let complexFilter, mapAudio;
+    if (dialoguePath) {
+      complexFilter = [
         "[1:a]volume=1.0[dialogue]",
-        "[2:a]volume=0.85[music]", // ~ -1.5 dB
+        "[2:a]volume=0.85[music]",
         "[dialogue][music]amix=inputs=2:duration=longest[aout]"
-      ])
+      ];
+      mapAudio = "[aout]";
+    } else {
+      complexFilter = [
+        "[1:a]volume=0.85[aout]"
+      ];
+      mapAudio = "[aout]";
+    }
+    
+    cmd.complexFilter(complexFilter)
       .outputOptions([
-        "-map 0:v",      // ✅ keep original video stream
-        "-map [aout]",   // ✅ use our mixed audio
-        "-c:v copy",     // don’t re-encode video
-        "-c:a aac",      // encode audio to AAC for MP4
-        "-shortest"      // cut off extra audio if longer
+        "-map 0:v",
+        `-map ${mapAudio}`,
+        "-c:v copy",
+        "-c:a aac",
+        "-shortest"
       ])
       .save(outputPath)
       .on("end", () => resolve())
@@ -64,25 +77,27 @@ app.post("/api/combine", async (req, res) => {
   try {
     await ensureDirectories();
     const { final_stitched_video, final_dialogue, final_music_url } = req.body;
-
-    if (!final_stitched_video || !final_dialogue || !final_music_url) {
-      return res.status(400).json({ error: "Missing inputs" });
+    
+    if (!final_stitched_video || !final_music_url) {
+      return res.status(400).json({ error: "Missing required inputs (video and music)" });
     }
-
+    
     const id = uuidv4();
     const videoPath = path.join(TEMP_DIR, `${id}_video.mp4`);
-    const dialoguePath = path.join(TEMP_DIR, `${id}_dialogue.mp3`);
+    const dialoguePath = final_dialogue ? path.join(TEMP_DIR, `${id}_dialogue.mp3`) : null;
     const musicPath = path.join(TEMP_DIR, `${id}_music.mp3`);
     const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
-
+    
     // Download files
     await downloadFile(final_stitched_video, videoPath);
-    await downloadFile(final_dialogue, dialoguePath);
+    if (final_dialogue) {
+      await downloadFile(final_dialogue, dialoguePath);
+    }
     await downloadFile(final_music_url, musicPath);
-
+    
     // Mix video + audio
     await mixVideo(videoPath, dialoguePath, musicPath, outputPath);
-
+    
     res.json({
       message: "✅ Combined video created",
       download_url: `/download/${path.basename(outputPath)}`
