@@ -29,43 +29,60 @@ async function downloadFile(url, filepath) {
   });
 }
 
-async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
+async function getAudioDuration(filepath) {
   return new Promise((resolve, reject) => {
-    const cmd = ffmpeg(videoPath);
-    
-    // Add inputs conditionally
-    if (dialoguePath) {
-      cmd.input(dialoguePath);
+    ffmpeg.ffprobe(filepath, (err, metadata) => {
+      if (err) reject(err);
+      else resolve(metadata.format.duration);
+    });
+  });
+}
+
+async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      // Get music duration to calculate fade out timing
+      const musicDuration = await getAudioDuration(musicPath);
+      const fadeInDuration = 1.5; // 1.5 seconds fade in
+      const fadeOutDuration = 1.5; // 1.5 seconds fade out
+      const fadeOutStart = musicDuration - fadeOutDuration;
+      
+      const cmd = ffmpeg(videoPath);
+      
+      // Add inputs conditionally
+      if (dialoguePath) {
+        cmd.input(dialoguePath);
+      }
+      cmd.input(musicPath);
+      
+      // Build complex filter based on whether dialogue exists
+      let complexFilter;
+      if (dialoguePath) {
+        complexFilter = [
+          "[1:a]volume=1.0[dialogue]",
+          `[2:a]afade=t=in:st=0:d=${fadeInDuration},afade=t=out:st=${fadeOutStart}:d=${fadeOutDuration},volume=0.85[music]`,
+          "[dialogue][music]amix=inputs=2:duration=longest[aout]"
+        ];
+      } else {
+        complexFilter = [
+          `[1:a]afade=t=in:st=0:d=${fadeInDuration},afade=t=out:st=${fadeOutStart}:d=${fadeOutDuration},volume=0.85[aout]`
+        ];
+      }
+      
+      cmd.complexFilter(complexFilter)
+        .outputOptions([
+          "-map 0:v",
+          "-map [aout]",
+          "-c:v copy",
+          "-c:a aac",
+          "-shortest"
+        ])
+        .save(outputPath)
+        .on("end", () => resolve())
+        .on("error", (err) => reject(err));
+    } catch (err) {
+      reject(err);
     }
-    cmd.input(musicPath);
-    
-    // Build complex filter based on whether dialogue exists
-    let complexFilter, mapAudio;
-    if (dialoguePath) {
-      complexFilter = [
-        "[1:a]volume=1.0[dialogue]",
-        "[2:a]volume=0.85[music]",
-        "[dialogue][music]amix=inputs=2:duration=longest[aout]"
-      ];
-      mapAudio = "[aout]";
-    } else {
-      complexFilter = [
-        "[1:a]volume=0.85[aout]"
-      ];
-      mapAudio = "[aout]";
-    }
-    
-    cmd.complexFilter(complexFilter)
-      .outputOptions([
-        "-map 0:v",
-        `-map ${mapAudio}`,
-        "-c:v copy",
-        "-c:a aac",
-        "-shortest"
-      ])
-      .save(outputPath)
-      .on("end", () => resolve())
-      .on("error", (err) => reject(err));
   });
 }
 
