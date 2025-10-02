@@ -41,43 +41,76 @@ async function getAudioDuration(filepath) {
 async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
   return new Promise(async (resolve, reject) => {
     try {
-      // Get music duration to calculate fade out timing
-      const musicDuration = await getAudioDuration(musicPath);
-      const fadeInDuration = 2.5; // 2.5 seconds fade in
-      const fadeOutDuration = 2.5; // 2.5 seconds fade out
-      const fadeOutStart = musicDuration - fadeOutDuration;
-      
       const cmd = ffmpeg(videoPath);
       
-      // Add inputs conditionally
-      if (dialoguePath) {
+      // Scenario 1: Video + Dialogue + Music
+      if (dialoguePath && musicPath) {
+        const musicDuration = await getAudioDuration(musicPath);
+        const fadeInDuration = 2.5;
+        const fadeOutDuration = 2.5;
+        const fadeOutStart = musicDuration - fadeOutDuration;
+        
         cmd.input(dialoguePath);
-      }
-      cmd.input(musicPath);
-      
-      // Build complex filter based on whether dialogue exists
-      let complexFilter;
-      if (dialoguePath) {
-        complexFilter = [
+        cmd.input(musicPath);
+        
+        const complexFilter = [
           "[1:a]volume=1.0[dialogue]",
           `[2:a]afade=t=in:st=0:d=${fadeInDuration},afade=t=out:st=${fadeOutStart}:d=${fadeOutDuration},volume=0.85[music]`,
           "[dialogue][music]amix=inputs=2:duration=longest[aout]"
         ];
-      } else {
-        complexFilter = [
-          `[1:a]afade=t=in:st=0:d=${fadeInDuration},afade=t=out:st=${fadeOutStart}:d=${fadeOutDuration},volume=0.85[aout]`
-        ];
+        
+        cmd.complexFilter(complexFilter)
+          .outputOptions([
+            "-map 0:v",
+            "-map [aout]",
+            "-c:v copy",
+            "-c:a aac",
+            "-shortest"
+          ]);
       }
-      
-      cmd.complexFilter(complexFilter)
-        .outputOptions([
+      // Scenario 2: Video + Dialogue only (no music)
+      else if (dialoguePath && !musicPath) {
+        cmd.input(dialoguePath);
+        
+        cmd.outputOptions([
           "-map 0:v",
-          "-map [aout]",
+          "-map 1:a",
           "-c:v copy",
           "-c:a aac",
           "-shortest"
-        ])
-        .save(outputPath)
+        ]);
+      }
+      // Scenario 3: Video + Music only (no dialogue)
+      else if (!dialoguePath && musicPath) {
+        const musicDuration = await getAudioDuration(musicPath);
+        const fadeInDuration = 2.5;
+        const fadeOutDuration = 2.5;
+        const fadeOutStart = musicDuration - fadeOutDuration;
+        
+        cmd.input(musicPath);
+        
+        const complexFilter = [
+          `[1:a]afade=t=in:st=0:d=${fadeInDuration},afade=t=out:st=${fadeOutStart}:d=${fadeOutDuration},volume=0.85[aout]`
+        ];
+        
+        cmd.complexFilter(complexFilter)
+          .outputOptions([
+            "-map 0:v",
+            "-map [aout]",
+            "-c:v copy",
+            "-c:a aac",
+            "-shortest"
+          ]);
+      }
+      // Scenario 4: Video only (shouldn't happen based on validation, but just copy video)
+      else {
+        cmd.outputOptions([
+          "-c:v copy",
+          "-c:a copy"
+        ]);
+      }
+      
+      cmd.save(outputPath)
         .on("end", () => resolve())
         .on("error", (err) => reject(err));
     } catch (err) {
@@ -95,14 +128,20 @@ app.post("/api/combine", async (req, res) => {
     await ensureDirectories();
     const { final_stitched_video, final_dialogue, final_music_url } = req.body;
     
-    if (!final_stitched_video || !final_music_url) {
-      return res.status(400).json({ error: "Missing required inputs (video and music)" });
+    // Only video is required now
+    if (!final_stitched_video) {
+      return res.status(400).json({ error: "Missing required input: video" });
+    }
+    
+    // At least one audio source should be provided
+    if (!final_dialogue && !final_music_url) {
+      return res.status(400).json({ error: "At least one audio source (dialogue or music) is required" });
     }
     
     const id = uuidv4();
     const videoPath = path.join(TEMP_DIR, `${id}_video.mp4`);
     const dialoguePath = final_dialogue ? path.join(TEMP_DIR, `${id}_dialogue.mp3`) : null;
-    const musicPath = path.join(TEMP_DIR, `${id}_music.mp3`);
+    const musicPath = final_music_url ? path.join(TEMP_DIR, `${id}_music.mp3`) : null;
     const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
     
     // Download files
@@ -110,7 +149,9 @@ app.post("/api/combine", async (req, res) => {
     if (final_dialogue) {
       await downloadFile(final_dialogue, dialoguePath);
     }
-    await downloadFile(final_music_url, musicPath);
+    if (final_music_url) {
+      await downloadFile(final_music_url, musicPath);
+    }
     
     // Mix video + audio
     await mixVideo(videoPath, dialoguePath, musicPath, outputPath);
