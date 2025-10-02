@@ -76,8 +76,8 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
           "-map 0:v",
           "-map 1:a",
           "-c:v copy",
-          "-c:a aac",
-          "-shortest"
+          "-c:a aac"
+          // Removed "-shortest" to keep full video duration
         ]);
       }
       // Scenario 3: Video + Music only (no dialogue)
