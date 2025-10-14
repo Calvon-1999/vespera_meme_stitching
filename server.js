@@ -74,8 +74,8 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     // Size is set smaller (dividing by 14) to prevent cropping.
     const fontSize = Math.floor(height / 14); 
 
-    // Stroke width is set to be noticeable but not cover the fill.
-    const strokeWidth = Math.max(2, Math.floor(fontSize / 20)); 
+    // ✅ ADJUSTED: Using 10 for a cleaner, visible black outline.
+    const strokeWidth = Math.max(2, Math.floor(fontSize / 10)); 
 
     // Helper to safely escape text for the shell command
     const escapeForShell = (text) => {
@@ -95,8 +95,8 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     // Set the font using the absolute path
     magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
     
-    // 🌟 CHANGE: Set the weight to 700 for standard BOLD
-    const fontWeight = 800; 
+    // ✅ FIXED: Set the weight to 900 for the maximum possible thickness (Extra Bold/Black)
+    const fontWeight = 900; 
     magickCmd += ` -weight ${fontWeight}`;
 
     // Common text styling options: White fill, black outline
@@ -116,7 +116,7 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
 
     magickCmd += ` "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Montserrat (Bold 700, White/Black Outline)');
+    console.log('🎨 Creating text overlay with Montserrat (Max Weight 900, White/Black Outline)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
