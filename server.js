@@ -75,7 +75,7 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     const fontSize = Math.floor(height / 14); 
 
     // Stroke width is set to be noticeable but not cover the fill.
-    const strokeWidth = Math.max(2, Math.floor(fontSize / 3)); 
+    const strokeWidth = Math.max(2, Math.floor(fontSize / 20)); 
 
     // Helper to safely escape text for the shell command
     const escapeForShell = (text) => {
