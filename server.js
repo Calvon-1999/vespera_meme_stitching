@@ -68,7 +68,7 @@ async function getVideoDimensions(filepath) {
 }
 
 /**
- * Creates a text overlay image using ImageMagick with the custom font.
+ * Creates a text overlay image using ImageMagick with a single, reliable draw command.
  */
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
     const fontSize = Math.floor(height / 14); 
@@ -76,44 +76,41 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     // Recalculate strokeWidth with a high divisor (30) for a very thin line.
     const strokeWidth = Math.max(1, Math.floor(fontSize / 30)); 
 
-    const escapeForShell = (text) => {
-        return text
-            .replace(/\\/g, '\\\\')
-            .replace(/"/g, '\\"')
-            .replace(/`/g, '\\`')
-            .replace(/\$/g, '\\$');
+    const verticalOffset = 20; 
+    const letterSpacing = -1;
+
+    // Helper to escape text for the 'label:' command (less aggressive escaping needed here)
+    const escapeForIM = (text) => {
+        // Escape quotes and backslashes
+        return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     };
 
-    const letterSpacing = -1;
-    const verticalOffset = 20; 
-
-    let magickCmd = `convert -size ${width}x${height} xc:none`;
-
-    magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
+    let magickCmd = `convert -size ${width}x${height} xc:none -font "${CUSTOM_FONT_PATH}"`;
     
-    // 🔑 THE FIX: Explicitly enable anti-aliasing for smooth edges
-    magickCmd += ' -antialias'; 
-    
-    const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth}`;
+    // Explicitly set pointsize and kerning globally
+    magickCmd += ` -pointsize ${fontSize} -kerning ${letterSpacing}`;
 
     if (topText) {
-        const escapedTop = escapeForShell(topText);
-        // Positioned 20 pixels from the top edge
-        magickCmd += ` -gravity north ${textOptions} -annotate +0+${verticalOffset} "${escapedTop}"`;
+        const escapedTop = escapeForIM(topText);
+        // Use the -draw command for cleaner stroke rendering
+        magickCmd += ` -gravity North -draw "stroke black fill white strokewidth ${strokeWidth} text 0,${verticalOffset} '${escapedTop}'"`;
     }
 
     if (bottomText) {
-        const escapedBottom = escapeForShell(bottomText);
-        // Positioned 20 pixels from the bottom edge
-        magickCmd += ` -gravity south ${textOptions} -annotate +0+${verticalOffset} "${escapedBottom}"`;
+        const escapedBottom = escapeForIM(bottomText);
+        // Use the -draw command for cleaner stroke rendering
+        magickCmd += ` -gravity South -draw "stroke black fill white strokewidth ${strokeWidth} text 0,${verticalOffset} '${escapedBottom}'"`;
     }
 
-    magickCmd += ` "${outputPath}"`;
+    // Ensure antialiasing is applied at the end before saving
+    magickCmd += ` -antialias "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Montserrat-Bold (White Fill, Anti-aliased Outline)');
+    console.log('🎨 Creating text overlay with Montserrat-Bold (Clean Stroke via -draw)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
+
+// NOTE: You must replace your existing createTextOverlayWithImageMagick function with the one above.
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
