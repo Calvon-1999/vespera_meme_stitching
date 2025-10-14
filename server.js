@@ -57,10 +57,9 @@ async function getVideoDimensions(filepath) {
 }
 
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
-  const fontSize = Math.floor(height / 15);
-  const strokeWidth = Math.max(3, fontSize / 16);
+  const fontSize = Math.floor(height / 12); // slightly larger text
+  const strokeWidth = Math.max(3, fontSize / 12);
 
-  // Escape text for shell
   const escapeForShell = (text) => {
     return text
       .replace(/\\/g, '\\\\')
@@ -69,32 +68,33 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
       .replace(/\$/g, '\\$');
   };
 
-  // ✅ Use a clean bold sans-serif font (DejaVuSans-Bold is common)
-  // You can replace it with another installed font like "Arial-Bold" or "Helvetica-Bold"
-  const fontName = "DejaVu-Sans-Bold";
+  // ✅ Impact-style bold sans-serif font
+  // You can install or reference any of these: "Impact", "Anton", "Arial Black", "OpenSans-ExtraBold"
+  const fontName = "Impact";
 
-  // ✅ Adjust letter spacing slightly tighter (-1 or -2 looks natural)
-  const letterSpacing = -1.5;
+  // ✅ Tighten spacing slightly
+  const letterSpacing = -1;
 
   let magickCmd = `convert -size ${width}x${height} xc:none`;
 
   if (topText) {
-    const escapedTop = escapeForShell(topText); // ❌ removed .toUpperCase()
-    magickCmd += ` -gravity north -font "${fontName}" -pointsize ${fontSize} -kerning ${letterSpacing} -fill white -stroke black -strokewidth ${strokeWidth} -annotate +0+30 "${escapedTop}"`;
+    const escapedTop = escapeForShell(topText); // keep original capitalization
+    magickCmd += ` -gravity north -font "${fontName}" -kerning ${letterSpacing} -pointsize ${fontSize} \
+      -fill white -stroke black -strokewidth ${strokeWidth} -annotate +0+40 "${escapedTop}"`;
   }
 
   if (bottomText) {
-    const escapedBottom = escapeForShell(bottomText); // ❌ removed .toUpperCase()
-    magickCmd += ` -gravity south -font "${fontName}" -pointsize ${fontSize} -kerning ${letterSpacing} -fill white -stroke black -strokewidth ${strokeWidth} -annotate +0+30 "${escapedBottom}"`;
+    const escapedBottom = escapeForShell(bottomText);
+    magickCmd += ` -gravity south -font "${fontName}" -kerning ${letterSpacing} -pointsize ${fontSize} \
+      -fill white -stroke black -strokewidth ${strokeWidth} -annotate +0+40 "${escapedBottom}"`;
   }
 
   magickCmd += ` "${outputPath}"`;
 
-  console.log('🎨 Creating text overlay with ImageMagick (bold sans-serif, reduced spacing)');
+  console.log('🎨 Creating text overlay with Impact-style meme font');
   await execPromise(magickCmd);
   console.log('✅ Text overlay created');
 }
-
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
   return new Promise(async (resolve, reject) => {
