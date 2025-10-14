@@ -81,8 +81,7 @@ const escapeForDrawtext = (text) => {
 };
 
 /**
- * 🔑 NEW: Wraps text by inserting newlines (\n) to prevent excessive width.
- * This is the first step to prevent text cropping.
+ * Wraps text by inserting newlines (\n) to prevent excessive width.
  * @param {string} text - The input text.
  * @param {number} maxCharsPerLine - Maximum characters before inserting a newline.
  * @returns {string} - The wrapped text.
@@ -94,11 +93,9 @@ const wrapText = (text, maxCharsPerLine = 30) => {
 
     for (const word of words) {
         if (currentLineLength + word.length + 1 > maxCharsPerLine) {
-            // Start new line
             wrappedText += '\n' + word + ' ';
             currentLineLength = word.length + 1;
         } else {
-            // Continue current line
             wrappedText += word + ' ';
             currentLineLength += word.length + 1;
         }
@@ -120,7 +117,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             const { height } = await getVideoDimensions(videoPath);
             
-            // 🔑 NEW: Apply wrapping BEFORE calculation and escaping
             const wrappedTopText = wrapText(topText);
             const wrappedBottomText = wrapText(bottomText);
 
@@ -129,10 +125,9 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             const bottomLines = wrappedBottomText.split('\n').length || 0;
             const maxLines = Math.max(topLines, bottomLines, 1);
             
-            // 🔑 NEW: Dynamically adjust the divisor based on lines
-            // Base divisor 13 (from your old code). Increase for more lines to save vertical space.
+            // Dynamically adjust the divisor based on lines
             const baseDivisor = 13; 
-            const verticalCompressionFactor = 2; // How much to increase the divisor per extra line
+            const verticalCompressionFactor = 2;
             const dynamicDivisor = baseDivisor + ((maxLines - 1) * verticalCompressionFactor); 
             
             // Text Calculation Constants
@@ -152,6 +147,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `shadowcolor=black@0.5`,
                 `shadowx=1`,
                 `shadowy=1`,
+                // FIX: Add text_align=center to ensure multi-line text is centered internally
+                `text_align=center`, 
                 `enable='between(t,0,999)'`,
             ].join(':');
 
@@ -162,6 +159,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             if (topText) {
                 // Escape the WRAPPED text
                 const escapedTopText = escapeForDrawtext(wrappedTopText);
+                // NOTE: x=(w-text_w)/2 centers the block, text_align=center centers lines inside the block
                 const topFilter = `drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${verticalOffset}`;
                 
                 // If there's bottom text, output to a temporary stream [v_temp]
@@ -192,7 +190,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 currentStream = '[v_out]'; // Mark as final stream
             }
             
-            // This case should not be hit due to the initial check, but for completeness:
             if (currentStream !== '[v_out]') {
                  return reject(new Error("Internal filter chain error: Final stream not labeled [v_out]."));
             }
