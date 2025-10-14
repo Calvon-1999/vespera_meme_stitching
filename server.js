@@ -70,23 +70,23 @@ async function getVideoDimensions(filepath) {
 /**
  * Creates a text overlay image using ImageMagick with a single, reliable draw command.
  */
-/**
- * Creates a text overlay image using ImageMagick with a single, reliable draw command.
- */
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
     const fontSize = Math.floor(height / 14); 
 
-    // Thin stroke: using divisor 30 (or higher)
+    // Thin stroke: using divisor 30
     const strokeWidth = Math.max(1, Math.floor(fontSize / 30)); 
 
     // Tight vertical positioning
     const verticalOffset = 20; 
     const letterSpacing = -1;
 
-    // Helper to escape text for the 'draw' command
+    // 🌟 THE FIX: Updated escape function to handle single quotes (')
     const escapeForIM = (text) => {
-        // Escape quotes and backslashes
-        return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        return text
+            // 1. Escape backslashes
+            .replace(/\\/g, '\\\\')
+            // 2. Escape single quotes (crucial for MvG text primitive)
+            .replace(/'/g, '\\\''); 
     };
 
     let magickCmd = `convert -size ${width}x${height} xc:none -font "${CUSTOM_FONT_PATH}"`;
@@ -95,20 +95,20 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
 
     if (topText) {
         const escapedTop = escapeForIM(topText);
-        // ✅ FIX: Changed 'strokewidth' to 'stroke-width=' for MvG compatibility
+        // Using stroke-width for MvG compatibility
         magickCmd += ` -gravity North -draw "stroke black fill white stroke-width ${strokeWidth} text 0,${verticalOffset} '${escapedTop}'"`;
     }
 
     if (bottomText) {
         const escapedBottom = escapeForIM(bottomText);
-        // ✅ FIX: Changed 'strokewidth' to 'stroke-width=' for MvG compatibility
+        // Using stroke-width for MvG compatibility
         magickCmd += ` -gravity South -draw "stroke black fill white stroke-width ${strokeWidth} text 0,${verticalOffset} '${escapedBottom}'"`;
     }
 
     // Ensure antialiasing is applied at the end before saving
     magickCmd += ` -antialias "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Montserrat-Bold (Clean Stroke via -draw)');
+    console.log('🎨 Creating text overlay with Montserrat-Bold (Text Escape Fixed)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
