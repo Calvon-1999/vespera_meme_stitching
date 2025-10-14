@@ -16,6 +16,7 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
 // --- 🔑 CUSTOM FONT CONFIGURATION ---
+// Ensure the font file path is correct
 const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf");
 // ------------------------------------
 
@@ -68,32 +69,34 @@ async function getVideoDimensions(filepath) {
 }
 
 /**
- * 🔑 FIXED: Robustly escapes all problematic characters for FFmpeg EXCEPT the programmatic newline (\n) 
- * which is needed to break the text into lines.
+ * 🔑 FINAL FIXED ESCAPING: Uses a placeholder to protect the programmatic newline (\n) 
+ * from aggressive backslash escaping, then correctly reinserts the FFmpeg C-style newline escape sequence ('\\n').
  */
 const escapeForDrawtext = (text) => {
-    // 1. Escape user-provided backslashes. 
-    // This is the most complex one: 4 backslashes in JS string literal becomes 2 in shell, 
-    // which is what FFmpeg needs to interpret a literal backslash.
+    const NEWLINE_FLAG = 'FFMPEG_NEWLINE_PLACEHOLDER_42';
+    
+    // 1. Replace all programmatic JS newlines ('\n') with the placeholder.
+    text = text.replace(/\n/g, NEWLINE_FLAG); 
+
+    // 2. Escape user-provided backslashes. 
+    // This is the aggressive escape required for FFmpeg to see a literal backslash from user input.
     text = text.replace(/\\/g, '\\\\\\\\'); 
     
-    // 2. Escape single quotes, as they enclose the 'text' value.
+    // 3. Escape single quotes, as they terminate the 'text' value.
     text = text.replace(/'/g, '\\\'');
 
-    // 3. Escape colons, which are parameter separators.
+    // 4. Escape colons, which are parameter separators.
     text = text.replace(/:/g, '\\:');
 
-    // NOTE: Programmatic newlines (\n) are intentionally left unescaped so that 
-    // fluent-ffmpeg can pass them as literal newlines to the shell, which FFmpeg 
-    // then correctly interprets as a line break within the quoted text string.
+    // 5. Reinsert the required FFmpeg newline escape: '\\n'.
+    // The sequence '\\n' is the C-style escape FFmpeg expects inside the quoted text parameter.
+    text = text.replace(new RegExp(NEWLINE_FLAG, 'g'), '\\\\n');
+
     return text;
 };
 
 /**
  * Wraps text by inserting standard JS newline (\n).
- * @param {string} text - The input text.
- * @param {number} maxCharsPerLine - Maximum characters before inserting a newline.
- * @returns {string} - The wrapped text.
  */
 const wrapText = (text, maxCharsPerLine = 30) => {
     const words = text.split(' ');
@@ -102,7 +105,7 @@ const wrapText = (text, maxCharsPerLine = 30) => {
 
     for (const word of words) {
         if (currentLineLength + word.length + 1 > maxCharsPerLine) {
-            wrappedText += '\n' + word + ' '; // Use standard JS newline
+            wrappedText += '\n' + word + ' '; 
             currentLineLength = word.length + 1;
         } else {
             wrappedText += word + ' ';
@@ -157,7 +160,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `shadowcolor=black@0.5`,
                 `shadowx=1`,
                 `shadowy=1`,
-                // text_align=center remains removed to ensure compatibility with older FFmpeg versions
+                // text_align=center is intentionally removed for compatibility
                 `enable='between(t,0,999)'`,
             ].join(':');
 
