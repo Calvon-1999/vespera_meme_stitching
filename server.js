@@ -15,8 +15,7 @@ const ffprobePath = require("@ffprobe-installer/ffprobe").path;
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
-// --- 🔑 CUSTOM FONT CONFIGURATION ---
-// Ensure the font file path is correct
+// --- CUSTOM FONT CONFIGURATION ---
 const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf");
 // ------------------------------------
 
@@ -69,7 +68,7 @@ async function getVideoDimensions(filepath) {
 }
 
 /**
- * 🔑 FINAL FIXED ESCAPING: Uses a placeholder to protect the programmatic newline (\n) 
+ * FIXED: Uses a placeholder to protect the programmatic newline (\n) 
  * from aggressive backslash escaping, then correctly reinserts the FFmpeg C-style newline escape sequence ('\\n').
  */
 const escapeForDrawtext = (text) => {
@@ -79,7 +78,6 @@ const escapeForDrawtext = (text) => {
     text = text.replace(/\n/g, NEWLINE_FLAG); 
 
     // 2. Escape user-provided backslashes. 
-    // This is the aggressive escape required for FFmpeg to see a literal backslash from user input.
     text = text.replace(/\\/g, '\\\\\\\\'); 
     
     // 3. Escape single quotes, as they terminate the 'text' value.
@@ -89,7 +87,6 @@ const escapeForDrawtext = (text) => {
     text = text.replace(/:/g, '\\:');
 
     // 5. Reinsert the required FFmpeg newline escape: '\\n'.
-    // The sequence '\\n' is the C-style escape FFmpeg expects inside the quoted text parameter.
     text = text.replace(new RegExp(NEWLINE_FLAG, 'g'), '\\\\n');
 
     return text;
@@ -160,7 +157,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `shadowcolor=black@0.5`,
                 `shadowx=1`,
                 `shadowy=1`,
-                // text_align=center is intentionally removed for compatibility
+                // text_align=center is REMOVED to avoid the 'Option not found' error
                 `enable='between(t,0,999)'`,
             ].join(':');
 
@@ -171,7 +168,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             if (topText) {
                 // Escape the WRAPPED text
                 const escapedTopText = escapeForDrawtext(wrappedTopText);
-                // x=(w-text_w)/2 centers the text block horizontally
+                // x=(w-text_w)/2 ensures the entire text block is centered horizontally
                 const topFilter = `drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${verticalOffset}`;
                 
                 // If there's bottom text, output to a temporary stream [v_temp]
