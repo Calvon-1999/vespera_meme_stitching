@@ -38,6 +38,93 @@ async function getAudioDuration(filepath) {
   });
 }
 
+async function getVideoDimensions(filepath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filepath, (err, metadata) => {
+      if (err) reject(err);
+      else {
+        const videoStream = metadata.streams.find(s => s.codec_type === 'video');
+        resolve({
+          width: videoStream.width,
+          height: videoStream.height
+        });
+      }
+    });
+  });
+}
+
+async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const { width, height } = await getVideoDimensions(videoPath);
+      
+      // Calculate font size based on video dimensions (roughly 1/15th of height)
+      const fontSize = Math.floor(height / 15);
+      
+      // Build drawtext filters
+      const filters = [];
+      
+      if (topText) {
+        // Escape special characters for FFmpeg
+        const escapedTopText = topText
+          .toUpperCase()
+          .replace(/\\/g, '\\\\')
+          .replace(/'/g, "\\'")
+          .replace(/:/g, '\\:');
+        
+        filters.push(
+          `drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:` +
+          `text='${escapedTopText}':` +
+          `fontcolor=white:fontsize=${fontSize}:` +
+          `borderw=3:bordercolor=black:` +
+          `x=(w-text_w)/2:y=30:` +
+          `line_spacing=10`
+        );
+      }
+      
+      if (bottomText) {
+        // Escape special characters for FFmpeg
+        const escapedBottomText = bottomText
+          .toUpperCase()
+          .replace(/\\/g, '\\\\')
+          .replace(/'/g, "\\'")
+          .replace(/:/g, '\\:');
+        
+        filters.push(
+          `drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:` +
+          `text='${escapedBottomText}':` +
+          `fontcolor=white:fontsize=${fontSize}:` +
+          `borderw=3:bordercolor=black:` +
+          `x=(w-text_w)/2:y=h-th-30:` +
+          `line_spacing=10`
+        );
+      }
+      
+      // If no text provided, just copy the video
+      if (filters.length === 0) {
+        await fsp.copyFile(videoPath, outputPath);
+        resolve();
+        return;
+      }
+      
+      const cmd = ffmpeg(videoPath);
+      
+      cmd.videoFilters(filters)
+        .outputOptions([
+          "-c:v libx264",
+          "-preset fast",
+          "-crf 23",
+          "-c:a copy"
+        ])
+        .save(outputPath)
+        .on("end", () => resolve())
+        .on("error", (err) => reject(err));
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
   return new Promise(async (resolve, reject) => {
     try {
@@ -126,7 +213,14 @@ app.get("/health", (req, res) => {
 app.post("/api/combine", async (req, res) => {
   try {
     await ensureDirectories();
-    const { final_stitched_video, final_dialogue, final_music_url } = req.body;
+    const { 
+      final_stitched_video, 
+      final_dialogue, 
+      final_music_url,
+      response_modality,
+      meme_top_text,
+      meme_bottom_text
+    } = req.body;
     
     // Only video is required now
     if (!final_stitched_video) {
@@ -142,6 +236,10 @@ app.post("/api/combine", async (req, res) => {
     const videoPath = path.join(TEMP_DIR, `${id}_video.mp4`);
     const dialoguePath = final_dialogue ? path.join(TEMP_DIR, `${id}_dialogue.mp3`) : null;
     const musicPath = final_music_url ? path.join(TEMP_DIR, `${id}_music.mp3`) : null;
+    
+    // Determine if we need meme text overlay
+    const needsMemeText = response_modality === "meme" && (meme_top_text || meme_bottom_text);
+    const videoWithTextPath = needsMemeText ? path.join(TEMP_DIR, `${id}_with_text.mp4`) : null;
     const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
     
     // Download files
@@ -153,11 +251,21 @@ app.post("/api/combine", async (req, res) => {
       await downloadFile(final_music_url, musicPath);
     }
     
-    // Mix video + audio
-    await mixVideo(videoPath, dialoguePath, musicPath, outputPath);
+    // Step 1: Add meme text if needed (only for response_modality: meme)
+    let videoToMix = videoPath;
+    if (needsMemeText) {
+      console.log(`🎨 Adding meme text - Top: "${meme_top_text}", Bottom: "${meme_bottom_text}"`);
+      await addMemeText(videoPath, videoWithTextPath, meme_top_text, meme_bottom_text);
+      videoToMix = videoWithTextPath;
+    }
+    
+    // Step 2: Mix video + audio
+    await mixVideo(videoToMix, dialoguePath, musicPath, outputPath);
     
     res.json({
-      message: "✅ Combined video created",
+      message: needsMemeText 
+        ? "✅ Combined video created with meme text overlay"
+        : "✅ Combined video created",
       download_url: `/download/${path.basename(outputPath)}`
     });
   } catch (err) {
