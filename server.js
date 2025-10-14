@@ -78,7 +78,9 @@ async function getVideoDimensions(filepath) {
  */
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
     const fontSize = Math.floor(height / 12);
-    const strokeWidth = Math.max(3, fontSize / 1);
+    // 🌟 FIX: Reduce stroke width to prevent black from covering white.
+    // Use a fixed smaller ratio (e.g., divide by 15 instead of 5)
+    const strokeWidth = Math.max(2, Math.floor(fontSize / 15)); 
 
     // Helper to safely escape text for the shell command
     const escapeForShell = (text) => {
@@ -95,10 +97,11 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     // Build the ImageMagick command
     let magickCmd = `convert -size ${width}x${height} xc:none`;
 
-    // 🌟 KEY CHANGE: Set the font using the absolute path
+    // Set the font using the absolute path
     magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
 
-    // 🌟 KEY CHANGE: Common text styling options including fill, stroke, and strokewidth
+    // Common text styling options including fill, stroke, and strokewidth
+    // The fill is WHITE, the stroke is BLACK, and the strokeWidth is smaller.
     const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth}`;
 
     if (topText) {
