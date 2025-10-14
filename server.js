@@ -68,59 +68,27 @@ async function getVideoDimensions(filepath) {
     });
 }
 
+// ❌ ImageMagick function is REMOVED
+
 /**
- * Creates a text overlay image using ImageMagick with the SIMPLE -annotate command.
+ * Helper to escape text for FFmpeg's drawtext filter (escapes backslashes, colons, and single quotes).
  */
-async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
-    const fontSize = Math.floor(height / 14); 
+const escapeForDrawtext = (text) => {
+    return text
+        // Escape backslashes for the filter string and the shell
+        .replace(/\\/g, '\\\\\\\\') 
+        // Escape colons, which are used as parameter separators
+        .replace(/:/g, '\\:') 
+        // Escape single quotes, which enclose the text value
+        .replace(/'/g, '\\\'');
+};
 
-    // ✅ Thin Stroke: Using divisor 20 for a thin, clean line (adjust as needed, 30 is also good).
-    const strokeWidth = Math.max(1, Math.floor(fontSize / 20)); 
-
-    // ✅ Tight Vertical Positioning (20 pixels from the edge)
-    const verticalOffset = 20; 
-    const letterSpacing = -1;
-
-    // Helper to safely escape text for the SIMPLE shell command (-annotate)
-    const escapeForShell = (text) => {
-        return text
-            // Escape backslashes, double quotes, and dollar signs for the shell
-            .replace(/\\/g, '\\\\')
-            .replace(/"/g, '\\"')
-            .replace(/`/g, '\\`')
-            .replace(/\$/g, '\\$');
-    };
-
-    let magickCmd = `convert -size ${width}x${height} xc:none`;
-
-    magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
-    
-    // ✅ Simple Text Styling: White fill, thin black stroke
-    const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth}`;
-
-    if (topText) {
-        const escapedTop = escapeForShell(topText);
-        // Using -annotate
-        magickCmd += ` -gravity north ${textOptions} -annotate +0+${verticalOffset} "${escapedTop}"`;
-    }
-
-    if (bottomText) {
-        const escapedBottom = escapeForShell(bottomText);
-        // Using -annotate
-        magickCmd += ` -gravity south ${textOptions} -annotate +0+${verticalOffset} "${escapedBottom}"`;
-    }
-
-    magickCmd += ` "${outputPath}"`;
-
-    console.log('🎨 Creating text overlay with Montserrat-Bold (Simple Annotate Method)');
-    await execPromise(magickCmd);
-    console.log('✅ Text overlay created');
-}
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
         try {
             if (!topText && !bottomText) {
+                // No text, just copy the video
                 await fsp.copyFile(videoPath, outputPath);
                 resolve();
                 return;
@@ -128,38 +96,73 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             console.log(`📝 Adding meme text - Top: "${topText}", Bottom: "${bottomText}"`);
 
-            const { width, height } = await getVideoDimensions(videoPath);
-            const overlayPath = path.join(TEMP_DIR, `overlay_${uuidv4()}.png`);
+            const { height } = await getVideoDimensions(videoPath);
+            
+            // Text Calculation Constants (based on previous requests)
+            const fontSize = Math.floor(height / 14);
+            const strokeWidth = Math.max(1, Math.floor(fontSize / 20)); // Thin black stroke
+            const verticalOffset = 20; // Tight vertical positioning
 
-            await createTextOverlayWithImageMagick(width, height, topText, bottomText, overlayPath);
+            // Shared parameters for the drawtext filter
+            const drawtextParams = [
+                `fontfile='${CUSTOM_FONT_PATH}'`,
+                `fontcolor=white`,
+                `fontsize=${fontSize}`,
+                `bordercolor=black`,
+                `borderw=${strokeWidth}`,
+                // Add a slight shadow for extra pop and visibility
+                `shadowcolor=black@0.5`,
+                `shadowx=1`,
+                `shadowy=1`,
+                `enable='between(t,0,999)'`, // Apply for the whole video duration
+            ].join(':');
 
-            const stats = await fsp.stat(overlayPath);
-            console.log(`📊 Overlay created: ${stats.size} bytes`);
+            let filterChain = '';
+            
+            const topFilter = topText ? 
+                `drawtext=${drawtextParams}:text='${escapeForDrawtext(topText)}':x=(w-text_w)/2:y=${verticalOffset}` : null;
+            
+            const bottomFilter = bottomText ? 
+                `drawtext=${drawtextParams}:text='${escapeForDrawtext(bottomText)}':x=(w-text_w)/2:y=h-text_h-${verticalOffset}` : null;
 
+            // --- Construct the FFmpeg Filter Chain ---
+            if (topFilter && bottomFilter) {
+                // Both texts: Chain them sequentially: [0:v] -> [v_temp] -> [v_out]
+                filterChain = `[0:v]${topFilter}[v_temp];[v_temp]${bottomFilter}[v_out]`;
+            } else if (topFilter) {
+                // Only top: [0:v] -> [v_out]
+                filterChain = `[0:v]${topFilter}[v_out]`;
+            } else if (bottomFilter) {
+                // Only bottom: [0:v] -> [v_out]
+                filterChain = `[0:v]${bottomFilter}[v_out]`;
+            } else {
+                 // Already handled by the initial check, but here for completeness
+                return;
+            }
+            
+            console.log('🎬 FFmpeg filter chain:', filterChain);
+
+            // --- Execute FFmpeg with drawtext filter ---
             ffmpeg()
                 .input(videoPath)
-                .input(overlayPath)
-                .complexFilter('[0:v][1:v]overlay=0:0')
+                // Use complexFilter to apply the drawtext chain
+                .complexFilter(filterChain, 'v_out') 
                 .videoCodec('libx264') 
                 .outputOptions(['-preset', 'fast', '-crf', '23'])
                 .audioCodec('copy')
                 .on('start', (cmd) => {
-                    console.log('🎬 FFmpeg overlay command:', cmd);
+                    console.log('🎬 FFmpeg drawtext command:', cmd);
                 })
                 .on('stderr', (line) => {
                     console.log('FFmpeg:', line);
                 })
-                .on('end', async () => {
+                .on('end', () => {
                     console.log('✅ Meme text overlay complete');
-                    try {
-                        await fsp.unlink(overlayPath);
-                    } catch (err) {
-                        console.warn('Could not delete overlay file:', err.message);
-                    }
+                    // ❌ No need to delete an overlay file anymore!
                     resolve();
                 })
                 .on('error', (err) => {
-                    console.error('❌ FFmpeg overlay error:', err.message);
+                    console.error('❌ FFmpeg drawtext error:', err.message);
                     reject(err);
                 })
                 .save(outputPath);
@@ -296,6 +299,7 @@ app.post("/api/combine", async (req, res) => {
         let videoToMix = videoPath;
         if (needsMemeText) {
             console.log(`🎨 Adding meme text overlay...`);
+            // addMemeText now saves directly to videoWithTextPath
             await addMemeText(videoPath, videoWithTextPath, meme_top_text, meme_bottom_text);
             videoToMix = videoWithTextPath;
         }
