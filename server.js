@@ -97,25 +97,25 @@ function wrapText(text, maxCharsPerLine = 30) {
 
 /**
  * Escapes text for FFmpeg drawtext filter
- * CRITICAL: Must handle newlines specially for multi-line text
+ * Uses a careful approach to handle all special characters
  */
 function escapeForDrawtext(text) {
     if (!text) return '';
     
-    const NEWLINE_PLACEHOLDER = '___NEWLINE_PLACEHOLDER___';
+    // Replace each character that needs escaping
+    // Order is critical: do NOT escape backslashes first or you'll double-escape
     
-    // Step 1: Protect newlines with unique placeholder
-    text = text.replace(/\n/g, NEWLINE_PLACEHOLDER);
+    // First, handle newlines by converting to a sequence FFmpeg understands
+    text = text.replace(/\n/g, '\n'); // Keep as literal newline for now
     
-    // Step 2: Escape special characters (backslash must be first!)
-    text = text.replace(/\\/g, '\\\\\\\\');  // Escape backslashes
-    text = text.replace(/'/g, '\\\'');        // Escape single quotes  
-    text = text.replace(/:/g, '\\:');         // Escape colons
+    // Escape characters that have special meaning in FFmpeg drawtext
+    // We need to escape: ' : \ [ ] ; ,
+    text = text.replace(/\\/g, '\\\\');      // Backslash
+    text = text.replace(/'/g, "'\\\\''");    // Single quote (replace with '\'' which ends quote, adds escaped quote, starts quote)
+    text = text.replace(/:/g, '\\:');        // Colon
     
-    // Step 3: Replace placeholder with the sequence FFmpeg needs for newlines
-    // When passing to complexFilter as a string, we need the literal characters '\' and 'n'
-    // This requires escaping the backslash: '\\' becomes '\' in the final string
-    text = text.replace(new RegExp(NEWLINE_PLACEHOLDER, 'g'), '\\\\n');
+    // NOW handle newlines - replace actual newline chars with \n sequence
+    text = text.replace(/\n/g, '\\n');
     
     return text;
 }
@@ -183,8 +183,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `borderw=${strokeWidth}`,
                 `shadowcolor=black@0.5`,
                 `shadowx=2`,
-                `shadowy=2`,
-                `text_align=C`  // Center align text for multi-line
+                `shadowy=2`
+                // Removed text_align=C temporarily for debugging
             ].join(':');
 
             // Build filter chain
