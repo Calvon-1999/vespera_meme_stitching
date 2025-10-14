@@ -15,9 +15,9 @@ const ffprobePath = require("@ffprobe-installer/ffprobe").path;
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
-// --- 🔑 CUSTOM FONT CONFIGURATION ---
+// --- 🔑 CUSTOM FONT CONFIGURATION (Using Montserrat-Bold.ttf as requested) ---
 const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf");
-// ------------------------------------
+// -----------------------------------------------------------------------------
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -68,17 +68,26 @@ async function getVideoDimensions(filepath) {
 }
 
 /**
- * Helper to escape text for FFmpeg's drawtext filter. 
+ * 🔑 FIXED: Robustly handles all escapes, especially the newline (\n) character,
+ * which is the source of the 'Invalid argument' error when wrapping text.
  */
 const escapeForDrawtext = (text) => {
-    // 1. Escape single quotes first, as they enclose the text value in the filter string
-    text = text.replace(/'/g, '\\\'');
-    // 2. Escape colons, which are used as parameter separators
-    text = text.replace(/:/g, '\\:');
-    // 3. Escape backslashes, they are escape characters
+    const NEWLINE_FLAG = 'FFMPEG_NEWLINE_PLACEHOLDER_42';
+    
+    // 1. Protect programmatic newlines used by wrapText
+    text = text.replace(/\n/g, NEWLINE_FLAG); 
+
+    // 2. Escape characters that break the FFmpeg filter syntax
     text = text.replace(/\\/g, '\\\\\\\\'); 
+    text = text.replace(/'/g, '\\\'');      
+    text = text.replace(/:/g, '\\:');       
+
+    // 3. Convert protected newlines into FFmpeg's required C-style escape '\\n'
+    text = text.replace(new RegExp(NEWLINE_FLAG, 'g'), '\\\\n');
+
     return text;
 };
+
 
 /**
  * 🔑 NEW: Wraps text by inserting newlines (\n) to prevent excessive width.
@@ -125,12 +134,11 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             const wrappedBottomText = wrapText(bottomText);
 
             // Determine the total number of lines to guide font sizing
-            const topLines = wrappedTopText.split('\n').length || 0;
-            const bottomLines = wrappedBottomText.split('\n').length || 0;
+            const topLines = wrappedTopText.split('\n').length || 0; 
+            const bottomLines = wrappedBottomText.split('\n').length || 0; 
             const maxLines = Math.max(topLines, bottomLines, 1);
             
             // 🔑 NEW: Dynamically adjust the divisor based on lines
-            // Base divisor 13 (from your old code). Increase for more lines to save vertical space.
             const baseDivisor = 13; 
             const verticalCompressionFactor = 2; // How much to increase the divisor per extra line
             const dynamicDivisor = baseDivisor + ((maxLines - 1) * verticalCompressionFactor); 
@@ -160,8 +168,9 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             // --- Top Text Filter ---
             if (topText) {
-                // Escape the WRAPPED text
+                // Escape the WRAPPED text using the robust fixed function
                 const escapedTopText = escapeForDrawtext(wrappedTopText);
+                // x=(w-text_w)/2 centers the entire text block horizontally
                 const topFilter = `drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${verticalOffset}`;
                 
                 // If there's bottom text, output to a temporary stream [v_temp]
@@ -177,7 +186,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             // --- Bottom Text Filter ---
             if (bottomText) {
-                // Escape the WRAPPED text
+                // Escape the WRAPPED text using the robust fixed function
                 const escapedBottomText = escapeForDrawtext(wrappedBottomText);
                 const bottomFilter = `drawtext=${drawtextParams}:text='${escapedBottomText}':x=(w-text_w)/2:y=h-text_h-${verticalOffset}`;
 
@@ -192,7 +201,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 currentStream = '[v_out]'; // Mark as final stream
             }
             
-            // This case should not be hit due to the initial check, but for completeness:
             if (currentStream !== '[v_out]') {
                  return reject(new Error("Internal filter chain error: Final stream not labeled [v_out]."));
             }
