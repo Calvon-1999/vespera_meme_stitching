@@ -73,8 +73,8 @@ async function getVideoDimensions(filepath) {
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
     const fontSize = Math.floor(height / 14); 
 
-    // ❌ REMOVED: strokeWidth is no longer needed if there's no stroke.
-    // const strokeWidth = Math.max(2, Math.floor(fontSize / 10)); 
+    // 🌟 ADJUSTMENT 1: Recalculate strokeWidth with a high divisor (30) for a very thin line.
+    const strokeWidth = Math.max(1, Math.floor(fontSize / 30)); 
 
     const escapeForShell = (text) => {
         return text
@@ -85,27 +85,31 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     };
 
     const letterSpacing = -1;
+    // 🌟 ADJUSTMENT 2: Set the vertical offset to 20 (fewer pixels from the edge)
+    const verticalOffset = 20; 
 
     let magickCmd = `convert -size ${width}x${height} xc:none`;
 
     magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
     
-    // 🌟 CHANGE: textOptions now only include -fill white and pointsize/kerning
-    const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white`;
+    // 🌟 ADJUSTMENT 3: Reintroduce black stroke, ensuring fill is white.
+    const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth}`;
 
     if (topText) {
         const escapedTop = escapeForShell(topText);
-        magickCmd += ` -gravity north ${textOptions} -annotate +0+40 "${escapedTop}"`;
+        // Positioned 20 pixels from the top edge
+        magickCmd += ` -gravity north ${textOptions} -annotate +0+${verticalOffset} "${escapedTop}"`;
     }
 
     if (bottomText) {
         const escapedBottom = escapeForShell(bottomText);
-        magickCmd += ` -gravity south ${textOptions} -annotate +0+40 "${escapedBottom}"`;
+        // Positioned 20 pixels from the bottom edge
+        magickCmd += ` -gravity south ${textOptions} -annotate +0+${verticalOffset} "${escapedBottom}"`;
     }
 
     magickCmd += ` "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Montserrat-Bold (White Fill, No Outline)');
+    console.log('🎨 Creating text overlay with Montserrat-Bold (White Fill, Very Thin Black Outline)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
