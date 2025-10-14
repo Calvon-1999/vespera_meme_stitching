@@ -15,10 +15,9 @@ const ffprobePath = require("@ffprobe-installer/ffprobe").path;
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
-// --- 🔑 CUSTOM FONT CONFIGURATION (UPDATED) ---
-// ✅ Change 1: Pointing to the static BOLD font file for reliability
+// --- 🔑 CUSTOM FONT CONFIGURATION ---
 const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf");
-// ----------------------------------------------
+// ------------------------------------
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -72,13 +71,11 @@ async function getVideoDimensions(filepath) {
  * Creates a text overlay image using ImageMagick with the custom font.
  */
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
-    // Size is set smaller (dividing by 14) to prevent cropping.
     const fontSize = Math.floor(height / 14); 
 
-    // Stroke width is set using divisor 10 for a standard, clean outline.
-    const strokeWidth = Math.max(2, Math.floor(fontSize / 10)); 
+    // ❌ REMOVED: strokeWidth is no longer needed if there's no stroke.
+    // const strokeWidth = Math.max(2, Math.floor(fontSize / 10)); 
 
-    // Helper to safely escape text for the shell command
     const escapeForShell = (text) => {
         return text
             .replace(/\\/g, '\\\\')
@@ -87,46 +84,37 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
             .replace(/\$/g, '\\$');
     };
 
-    // Tighten spacing slightly
     const letterSpacing = -1;
 
-    // Build the ImageMagick command
     let magickCmd = `convert -size ${width}x${height} xc:none`;
 
-    // Set the font using the absolute path (Montserrat-Bold.ttf)
     magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
     
-    // ❌ REMOVED: The -weight command is no longer needed since the file is statically bold.
-    // The font is now explicitly Bold, and the color is White with a Black Outline.
-
-    // Common text styling options: White fill, black outline
-    const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth}`;
+    // 🌟 CHANGE: textOptions now only include -fill white and pointsize/kerning
+    const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white`;
 
     if (topText) {
         const escapedTop = escapeForShell(topText);
-        // Apply text options and annotate for the top text
         magickCmd += ` -gravity north ${textOptions} -annotate +0+40 "${escapedTop}"`;
     }
 
     if (bottomText) {
         const escapedBottom = escapeForShell(bottomText);
-        // Apply text options and annotate for the bottom text
         magickCmd += ` -gravity south ${textOptions} -annotate +0+40 "${escapedBottom}"`;
     }
 
     magickCmd += ` "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Montserrat-Bold (White/Black Outline)');
+    console.log('🎨 Creating text overlay with Montserrat-Bold (White Fill, No Outline)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
 
-// ... (rest of the functions remain the same)
+// ... (rest of the server.js code remains the same as your last correct version)
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
         try {
-            // If no text, just copy the video
             if (!topText && !bottomText) {
                 await fsp.copyFile(videoPath, outputPath);
                 resolve();
@@ -138,19 +126,15 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             const { width, height } = await getVideoDimensions(videoPath);
             const overlayPath = path.join(TEMP_DIR, `overlay_${uuidv4()}.png`);
 
-            // Create text overlay with ImageMagick
             await createTextOverlayWithImageMagick(width, height, topText, bottomText, overlayPath);
 
-            // Verify overlay was created
             const stats = await fsp.stat(overlayPath);
             console.log(`📊 Overlay created: ${stats.size} bytes`);
 
-            // Overlay the PNG onto video using FFmpeg
             ffmpeg()
                 .input(videoPath)
                 .input(overlayPath)
                 .complexFilter('[0:v][1:v]overlay=0:0')
-                // ✅ FIXED: Using 'libx264'
                 .videoCodec('libx264') 
                 .outputOptions(['-preset', 'fast', '-crf', '23'])
                 .audioCodec('copy')
@@ -162,7 +146,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 })
                 .on('end', async () => {
                     console.log('✅ Meme text overlay complete');
-                    // Clean up overlay file
                     try {
                         await fsp.unlink(overlayPath);
                     } catch (err) {
@@ -188,7 +171,6 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
         try {
             const cmd = ffmpeg(videoPath);
 
-            // Scenario 1: Video + Dialogue + Music
             if (dialoguePath && musicPath) {
                 const musicDuration = await getAudioDuration(musicPath);
                 const fadeInDuration = 2.5;
@@ -213,7 +195,6 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
                         "-shortest"
                     ]);
             }
-            // Scenario 2: Video + Dialogue only (no music)
             else if (dialoguePath && !musicPath) {
                 cmd.input(dialoguePath);
 
@@ -224,7 +205,6 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
                     "-c:a aac"
                 ]);
             }
-            // Scenario 3: Video + Music only (no dialogue)
             else if (!dialoguePath && musicPath) {
                 const musicDuration = await getAudioDuration(musicPath);
                 const fadeInDuration = 2.5;
@@ -246,7 +226,6 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
                         "-shortest"
                     ]);
             }
-            // Scenario 4: Video only
             else {
                 cmd.outputOptions([
                     "-c:v copy",
@@ -281,7 +260,6 @@ app.post("/api/combine", async (req, res) => {
             meme_bottom_text
         } = req.body;
 
-        // Basic validation
         if (!final_stitched_video) {
             return res.status(400).json({ error: "Missing required input: video" });
         }
@@ -295,12 +273,10 @@ app.post("/api/combine", async (req, res) => {
         const dialoguePath = final_dialogue ? path.join(TEMP_DIR, `${id}_dialogue.mp3`) : null;
         const musicPath = final_music_url ? path.join(TEMP_DIR, `${id}_music.mp3`) : null;
 
-        // Determine if we need meme text overlay
         const needsMemeText = response_modality === "meme" && (meme_top_text || meme_bottom_text);
         const videoWithTextPath = needsMemeText ? path.join(TEMP_DIR, `${id}_with_text.mp4`) : null;
         const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
 
-        // Download files
         console.log('📥 Downloading video...');
         await downloadFile(final_stitched_video, videoPath);
         if (final_dialogue) {
@@ -312,7 +288,6 @@ app.post("/api/combine", async (req, res) => {
             await downloadFile(final_music_url, musicPath);
         }
 
-        // Step 1: Add meme text if needed
         let videoToMix = videoPath;
         if (needsMemeText) {
             console.log(`🎨 Adding meme text overlay...`);
@@ -320,7 +295,6 @@ app.post("/api/combine", async (req, res) => {
             videoToMix = videoWithTextPath;
         }
 
-        // Step 2: Mix video + audio
         console.log('🎵 Mixing video and audio...');
         await mixVideo(videoToMix, dialoguePath, musicPath, outputPath);
 
