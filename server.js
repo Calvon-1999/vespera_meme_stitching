@@ -107,13 +107,14 @@ function escapeForDrawtext(text) {
     // Step 1: Protect newlines with placeholder
     text = text.replace(/\n/g, NEWLINE_PLACEHOLDER);
     
-    // Step 2: Escape FFmpeg special characters
-    text = text.replace(/\\/g, '\\\\\\\\');  // Backslashes
+    // Step 2: Escape FFmpeg special characters (order matters!)
+    text = text.replace(/\\/g, '\\\\\\\\');  // Backslashes first
     text = text.replace(/'/g, '\\\'');        // Single quotes
     text = text.replace(/:/g, '\\:');         // Colons
     
-    // Step 3: Convert placeholder to FFmpeg newline format
-    text = text.replace(new RegExp(NEWLINE_PLACEHOLDER, 'g'), '\\\\n');
+    // Step 3: Convert placeholder to FFmpeg newline format with proper escaping
+    // For centered multi-line text, we need literal \n in the filter
+    text = text.replace(new RegExp(NEWLINE_PLACEHOLDER, 'g'), '\\n');
     
     return text;
 }
