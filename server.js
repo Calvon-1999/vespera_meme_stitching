@@ -95,8 +95,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             const { height } = await getVideoDimensions(videoPath);
             
             // Text Calculation Constants
-            const fontSize = Math.floor(height / 14);
-            const strokeWidth = Math.max(1, Math.floor(fontSize / 20)); 
+            const fontSize = Math.floor(height / 13);
+            const strokeWidth = Math.max(1, Math.floor(fontSize / 17)); 
             const verticalOffset = 20; 
 
             const escapedFontPath = CUSTOM_FONT_PATH.replace(/:/g, '\\:');
