@@ -53,6 +53,31 @@ async function getVideoDimensions(filepath) {
   });
 }
 
+async function findSystemFont() {
+  // Common font paths across different systems
+  const fontPaths = [
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/TTF/DejaVuSans-Bold.ttf',
+    '/System/Library/Fonts/Helvetica.ttc',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+    '/usr/share/fonts/liberation-sans/LiberationSans-Bold.ttf',
+    'Arial-Bold',  // Fallback to system font name
+    'Helvetica-Bold'
+  ];
+  
+  for (const fontPath of fontPaths) {
+    try {
+      await fsp.access(fontPath);
+      return fontPath;
+    } catch (err) {
+      continue;
+    }
+  }
+  
+  // If no font file found, return null to use default system font
+  return null;
+}
+
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
   return new Promise(async (resolve, reject) => {
     try {
@@ -61,6 +86,9 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
       // Calculate font size based on video dimensions (roughly 1/15th of height)
       const fontSize = Math.floor(height / 15);
       
+      // Find available font
+      const fontFile = await findSystemFont();
+      
       // Build drawtext filters
       const filters = [];
       
@@ -68,17 +96,20 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
         // Escape special characters for FFmpeg
         const escapedTopText = topText
           .toUpperCase()
-          .replace(/\\/g, '\\\\')
-          .replace(/'/g, "\\'")
-          .replace(/:/g, '\\:');
+          .replace(/\\/g, '\\\\\\\\')
+          .replace(/'/g, "'\\\\\\\\\\\\''")
+          .replace(/:/g, '\\\\:')
+          .replace(/\[/g, '\\\\[')
+          .replace(/\]/g, '\\\\]');
+        
+        const fontParam = fontFile ? `fontfile=${fontFile}:` : '';
         
         filters.push(
-          `drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:` +
+          `drawtext=${fontParam}` +
           `text='${escapedTopText}':` +
           `fontcolor=white:fontsize=${fontSize}:` +
           `borderw=3:bordercolor=black:` +
-          `x=(w-text_w)/2:y=30:` +
-          `line_spacing=10`
+          `x=(w-text_w)/2:y=30`
         );
       }
       
@@ -86,17 +117,20 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
         // Escape special characters for FFmpeg
         const escapedBottomText = bottomText
           .toUpperCase()
-          .replace(/\\/g, '\\\\')
-          .replace(/'/g, "\\'")
-          .replace(/:/g, '\\:');
+          .replace(/\\/g, '\\\\\\\\')
+          .replace(/'/g, "'\\\\\\\\\\\\''")
+          .replace(/:/g, '\\\\:')
+          .replace(/\[/g, '\\\\[')
+          .replace(/\]/g, '\\\\]');
+        
+        const fontParam = fontFile ? `fontfile=${fontFile}:` : '';
         
         filters.push(
-          `drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:` +
+          `drawtext=${fontParam}` +
           `text='${escapedBottomText}':` +
           `fontcolor=white:fontsize=${fontSize}:` +
           `borderw=3:bordercolor=black:` +
-          `x=(w-text_w)/2:y=h-th-30:` +
-          `line_spacing=10`
+          `x=(w-text_w)/2:y=h-th-30`
         );
       }
       
