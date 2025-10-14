@@ -73,7 +73,7 @@ async function getVideoDimensions(filepath) {
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
     const fontSize = Math.floor(height / 14); 
 
-    // 🌟 ADJUSTMENT 1: Recalculate strokeWidth with a high divisor (30) for a very thin line.
+    // Recalculate strokeWidth with a high divisor (30) for a very thin line.
     const strokeWidth = Math.max(1, Math.floor(fontSize / 30)); 
 
     const escapeForShell = (text) => {
@@ -85,14 +85,15 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     };
 
     const letterSpacing = -1;
-    // 🌟 ADJUSTMENT 2: Set the vertical offset to 20 (fewer pixels from the edge)
     const verticalOffset = 20; 
 
     let magickCmd = `convert -size ${width}x${height} xc:none`;
 
     magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
     
-    // 🌟 ADJUSTMENT 3: Reintroduce black stroke, ensuring fill is white.
+    // 🔑 THE FIX: Explicitly enable anti-aliasing for smooth edges
+    magickCmd += ' -antialias'; 
+    
     const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth}`;
 
     if (topText) {
@@ -109,12 +110,10 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
 
     magickCmd += ` "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Montserrat-Bold (White Fill, Very Thin Black Outline)');
+    console.log('🎨 Creating text overlay with Montserrat-Bold (White Fill, Anti-aliased Outline)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
-
-// ... (rest of the server.js code remains the same as your last correct version)
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
