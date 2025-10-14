@@ -80,6 +80,32 @@ const escapeForDrawtext = (text) => {
     return text;
 };
 
+/**
+ * 🔑 NEW: Wraps text by inserting newlines (\n) to prevent excessive width.
+ * This is the first step to prevent text cropping.
+ * @param {string} text - The input text.
+ * @param {number} maxCharsPerLine - Maximum characters before inserting a newline.
+ * @returns {string} - The wrapped text.
+ */
+const wrapText = (text, maxCharsPerLine = 30) => {
+    const words = text.split(' ');
+    let wrappedText = '';
+    let currentLineLength = 0;
+
+    for (const word of words) {
+        if (currentLineLength + word.length + 1 > maxCharsPerLine) {
+            // Start new line
+            wrappedText += '\n' + word + ' ';
+            currentLineLength = word.length + 1;
+        } else {
+            // Continue current line
+            wrappedText += word + ' ';
+            currentLineLength += word.length + 1;
+        }
+    }
+    return wrappedText.trim();
+};
+
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
@@ -94,8 +120,23 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             const { height } = await getVideoDimensions(videoPath);
             
+            // 🔑 NEW: Apply wrapping BEFORE calculation and escaping
+            const wrappedTopText = wrapText(topText);
+            const wrappedBottomText = wrapText(bottomText);
+
+            // Determine the total number of lines to guide font sizing
+            const topLines = wrappedTopText.split('\n').length || 0;
+            const bottomLines = wrappedBottomText.split('\n').length || 0;
+            const maxLines = Math.max(topLines, bottomLines, 1);
+            
+            // 🔑 NEW: Dynamically adjust the divisor based on lines
+            // Base divisor 13 (from your old code). Increase for more lines to save vertical space.
+            const baseDivisor = 13; 
+            const verticalCompressionFactor = 2; // How much to increase the divisor per extra line
+            const dynamicDivisor = baseDivisor + ((maxLines - 1) * verticalCompressionFactor); 
+            
             // Text Calculation Constants
-            const fontSize = Math.floor(height / 13);
+            const fontSize = Math.floor(height / dynamicDivisor); 
             const strokeWidth = Math.max(1, Math.floor(fontSize / 10)); 
             const verticalOffset = 20; 
 
@@ -119,7 +160,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             // --- Top Text Filter ---
             if (topText) {
-                const escapedTopText = escapeForDrawtext(topText);
+                // Escape the WRAPPED text
+                const escapedTopText = escapeForDrawtext(wrappedTopText);
                 const topFilter = `drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${verticalOffset}`;
                 
                 // If there's bottom text, output to a temporary stream [v_temp]
@@ -135,7 +177,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             // --- Bottom Text Filter ---
             if (bottomText) {
-                const escapedBottomText = escapeForDrawtext(bottomText);
+                // Escape the WRAPPED text
+                const escapedBottomText = escapeForDrawtext(wrappedBottomText);
                 const bottomFilter = `drawtext=${drawtextParams}:text='${escapedBottomText}':x=(w-text_w)/2:y=h-text_h-${verticalOffset}`;
 
                 // Add a semicolon only if this is not the first filter (i.e., topText was present)
@@ -227,7 +270,7 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
                     "-map 1:a",
                     "-c:v copy",
                     "-c:a aac"
-                ]);
+                    ]);
             }
             else if (!dialoguePath && musicPath) {
                 const musicDuration = await getAudioDuration(musicPath);
