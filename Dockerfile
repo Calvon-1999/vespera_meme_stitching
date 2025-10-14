@@ -1,9 +1,9 @@
 # Use Node.js 18 with Debian base (includes apt-get)
 FROM node:18-bullseye
 
-# Install FFmpeg, ImageMagick, and fonts
+# Install FFmpeg and fonts
 RUN apt-get update && \
-    apt-get install -y ffmpeg imagemagick fonts-dejavu-core fonts-liberation && \
+    apt-get install -y ffmpeg fonts-dejavu-core fonts-liberation && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -26,7 +26,7 @@ RUN mkdir -p uploads outputs temp
 EXPOSE 8080
 
 # Verify installations (optional - for debugging)
-RUN ffmpeg -version && convert -version
+RUN ffmpeg -version
 
 # Start the application
 CMD ["npm", "start"]
