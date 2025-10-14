@@ -68,12 +68,10 @@ async function getVideoDimensions(filepath) {
 }
 
 /**
- * 🔑 REVISED: Robustly escapes characters in text content for the drawtext filter. 
- * Backslashes must be escaped first and aggressively.
+ * Robustly escapes characters in text content for the drawtext filter. 
  */
 const escapeForDrawtext = (text) => {
-    // 1. Escape the backslash character itself first. This is critical.
-    // Need four backslashes to reliably result in one backslash in the final filter string.
+    // 1. Escape the backslash character itself first.
     text = text.replace(/\\/g, '\\\\\\\\');
     // 2. Escape single quotes, as they terminate the 'text' value.
     text = text.replace(/'/g, '\\\'');
@@ -83,8 +81,7 @@ const escapeForDrawtext = (text) => {
 };
 
 /**
- * 🔑 REVISED: Wraps text by inserting the literal string "\\n" for FFmpeg newlines.
- * This ensures the backslash is present for FFmpeg's parser.
+ * Wraps text by inserting the literal string "\n" for FFmpeg newlines.
  * @param {string} text - The input text.
  * @param {number} maxCharsPerLine - Maximum characters before inserting a newline.
  * @returns {string} - The wrapped text.
@@ -152,8 +149,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `shadowcolor=black@0.5`,
                 `shadowx=1`,
                 `shadowy=1`,
-                // text_align=center ensures multi-line text is centered internally
-                `text_align=center`, 
+                // 🔑 FIXED: Removed unsupported 'text_align=center'
                 `enable='between(t,0,999)'`,
             ].join(':');
 
