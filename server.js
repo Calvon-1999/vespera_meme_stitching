@@ -5,9 +5,6 @@ const fs = require("fs");
 const fsp = require("fs").promises;
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
-const { exec } = require("child_process");
-const util = require("util");
-const execPromise = util.promisify(exec);
 
 // FFmpeg Setup
 const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path;
@@ -15,9 +12,8 @@ const ffprobePath = require("@ffprobe-installer/ffprobe").path;
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
-// --- 🔑 CUSTOM FONT CONFIGURATION (Using Montserrat-Bold.ttf as requested) ---
+// Custom Font Configuration
 const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf");
-// -----------------------------------------------------------------------------
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -27,18 +23,23 @@ app.use(express.json({ limit: "50mb" }));
 const TEMP_DIR = "/tmp";
 const OUTPUT_DIR = path.join(TEMP_DIR, "output");
 
-// --- Utility Functions ---
+// ==================== UTILITY FUNCTIONS ====================
 
 async function ensureDirectories() {
     await fsp.mkdir(OUTPUT_DIR, { recursive: true });
+    console.log('📁 Directories ensured');
 }
 
 async function downloadFile(url, filepath) {
+    console.log(`⬇️  Downloading: ${url}`);
     const response = await axios({ method: "GET", url, responseType: "stream" });
     const writer = fs.createWriteStream(filepath);
     response.data.pipe(writer);
     return new Promise((resolve, reject) => {
-        writer.on("finish", resolve);
+        writer.on("finish", () => {
+            console.log(`✅ Downloaded: ${filepath}`);
+            resolve();
+        });
         writer.on("error", reject);
     });
 }
@@ -58,6 +59,10 @@ async function getVideoDimensions(filepath) {
             if (err) reject(err);
             else {
                 const videoStream = metadata.streams.find(s => s.codec_type === 'video');
+                if (!videoStream) {
+                    reject(new Error('No video stream found'));
+                    return;
+                }
                 resolve({
                     width: videoStream.width,
                     height: videoStream.height
@@ -68,86 +73,106 @@ async function getVideoDimensions(filepath) {
 }
 
 /**
- * 🔑 THE FIX: Robustly handles all escapes, especially the newline (\n) character,
- * which is the source of the 'Invalid argument' error when wrapping text.
+ * Wraps text by inserting newlines to prevent excessive width
  */
-const escapeForDrawtext = (text) => {
-    // 1. Define a unique placeholder for the JavaScript newline character.
-    const NEWLINE_FLAG = 'FFMPEG_NEWLINE_PLACEHOLDER_42';
+function wrapText(text, maxCharsPerLine = 30) {
+    if (!text) return '';
     
-    // 2. PROTECT: Replace all programmatic newlines (\n) with the placeholder.
-    text = text.replace(/\n/g, NEWLINE_FLAG); 
-
-    // 3. ESCAPE: Escape FFmpeg special characters *first*.
-    text = text.replace(/\\/g, '\\\\\\\\'); 
-    text = text.replace(/'/g, '\\\'');      
-    text = text.replace(/:/g, '\\:');       
-
-    // 4. RESTORE & CORRECT: Convert the protected placeholders into FFmpeg's required '\\n'.
-    text = text.replace(new RegExp(NEWLINE_FLAG, 'g'), '\\\\n');
-
-    return text;
-};
-
-
-/**
- * Wraps text by inserting newlines (\n) to prevent excessive width (prevents cropping).
- */
-const wrapText = (text, maxCharsPerLine = 30) => {
     const words = text.split(' ');
     let wrappedText = '';
     let currentLineLength = 0;
 
     for (const word of words) {
         if (currentLineLength + word.length + 1 > maxCharsPerLine) {
-            // Start new line
             wrappedText += '\n' + word + ' ';
             currentLineLength = word.length + 1;
         } else {
-            // Continue current line
             wrappedText += word + ' ';
             currentLineLength += word.length + 1;
         }
     }
+    
     return wrappedText.trim();
-};
+}
 
+/**
+ * Escapes text for FFmpeg drawtext filter
+ * Uses placeholder to protect newlines during escaping
+ */
+function escapeForDrawtext(text) {
+    if (!text) return '';
+    
+    const NEWLINE_PLACEHOLDER = 'FFMPEG_NEWLINE_PLACEHOLDER_42';
+    
+    // Step 1: Protect newlines with placeholder
+    text = text.replace(/\n/g, NEWLINE_PLACEHOLDER);
+    
+    // Step 2: Escape FFmpeg special characters
+    text = text.replace(/\\/g, '\\\\\\\\');  // Backslashes
+    text = text.replace(/'/g, '\\\'');        // Single quotes
+    text = text.replace(/:/g, '\\:');         // Colons
+    
+    // Step 3: Convert placeholder to FFmpeg newline format
+    text = text.replace(new RegExp(NEWLINE_PLACEHOLDER, 'g'), '\\\\n');
+    
+    return text;
+}
 
+/**
+ * Adds meme text overlay to video
+ */
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
         try {
+            console.log('🎨 addMemeText function called');
+            console.log('   Video path:', videoPath);
+            console.log('   Output path:', outputPath);
+            console.log('   Top text:', topText);
+            console.log('   Bottom text:', bottomText);
+
+            // If no text, just copy the file
             if (!topText && !bottomText) {
+                console.log('⚠️  No text provided - copying video file');
                 await fsp.copyFile(videoPath, outputPath);
                 resolve();
                 return;
             }
 
-            console.log(`📝 Adding meme text - Top: "${topText}", Bottom: "${bottomText}"`);
+            // Get video dimensions
+            const { width, height } = await getVideoDimensions(videoPath);
+            console.log(`📐 Video dimensions: ${width}x${height}`);
 
-            const { height } = await getVideoDimensions(videoPath);
+            // Wrap text for multi-line display
+            const wrappedTopText = wrapText(topText, 30);
+            const wrappedBottomText = wrapText(bottomText, 30);
             
-            // Apply wrapping BEFORE calculation and escaping
-            const wrappedTopText = wrapText(topText);
-            const wrappedBottomText = wrapText(bottomText);
+            console.log('📝 Wrapped top text:', wrappedTopText);
+            console.log('📝 Wrapped bottom text:', wrappedBottomText);
 
-            // Determine the total number of lines to guide font sizing
-            const topLines = wrappedTopText.split('\n').length || 0; 
-            const bottomLines = wrappedBottomText.split('\n').length || 0; 
+            // Calculate font size based on number of lines
+            const topLines = wrappedTopText.split('\n').length;
+            const bottomLines = wrappedBottomText.split('\n').length;
             const maxLines = Math.max(topLines, bottomLines, 1);
             
-            // Dynamically adjust the divisor based on lines
-            const baseDivisor = 13; 
-            const verticalCompressionFactor = 2; 
-            const dynamicDivisor = baseDivisor + ((maxLines - 1) * verticalCompressionFactor); 
+            const baseDivisor = 13;
+            const verticalCompressionFactor = 2;
+            const dynamicDivisor = baseDivisor + ((maxLines - 1) * verticalCompressionFactor);
             
-            // Text Calculation Constants
-            const fontSize = Math.floor(height / dynamicDivisor); 
-            const strokeWidth = Math.max(1, Math.floor(fontSize / 10)); 
-            const verticalOffset = 20; 
+            const fontSize = Math.floor(height / dynamicDivisor);
+            const strokeWidth = Math.max(2, Math.floor(fontSize / 10));
+            const verticalOffset = 20;
 
+            console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}`);
+
+            // Escape font path for FFmpeg
             const escapedFontPath = CUSTOM_FONT_PATH.replace(/:/g, '\\:');
 
-            // Shared parameters for the drawtext filter
+            // Check if font exists
+            if (!fs.existsSync(CUSTOM_FONT_PATH)) {
+                console.warn(`⚠️  Warning: Font file not found at ${CUSTOM_FONT_PATH}`);
+            }
+
+            // Shared drawtext parameters
             const drawtextParams = [
                 `fontfile='${escapedFontPath}'`,
                 `fontcolor=white`,
@@ -155,70 +180,62 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `bordercolor=black`,
                 `borderw=${strokeWidth}`,
                 `shadowcolor=black@0.5`,
-                `shadowx=1`,
-                `shadowy=1`,
-                `enable='between(t,0,999)'`,
+                `shadowx=2`,
+                `shadowy=2`
             ].join(':');
 
+            // Build filter chain
             let filterChain = '';
-            let currentStream = '[0:v]'; // Start with the input video stream
+            let currentStream = '[0:v]';
 
-            // --- Top Text Filter ---
+            // Top text filter
             if (topText) {
-                // Use the FIXED escape function on the WRAPPED text
                 const escapedTopText = escapeForDrawtext(wrappedTopText);
-                // x=(w-text_w)/2 centers the entire text block horizontally
+                console.log('🔐 Escaped top text:', escapedTopText);
+                
                 const topFilter = `drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${verticalOffset}`;
                 
-                // Chain the filters
                 if (bottomText) {
-                    filterChain += `${currentStream}${topFilter}[v_temp]`;
-                    currentStream = '[v_temp]'; 
+                    filterChain += `${currentStream}${topFilter}[v_temp];`;
+                    currentStream = '[v_temp]';
                 } else {
                     filterChain += `${currentStream}${topFilter}[v_out]`;
-                    currentStream = '[v_out]'; 
                 }
             }
 
-            // --- Bottom Text Filter ---
+            // Bottom text filter
             if (bottomText) {
-                // Use the FIXED escape function on the WRAPPED text
                 const escapedBottomText = escapeForDrawtext(wrappedBottomText);
+                console.log('🔐 Escaped bottom text:', escapedBottomText);
+                
                 const bottomFilter = `drawtext=${drawtextParams}:text='${escapedBottomText}':x=(w-text_w)/2:y=h-text_h-${verticalOffset}`;
-
-                if (filterChain) {
-                    filterChain += ';'; 
-                }
                 
                 filterChain += `${currentStream}${bottomFilter}[v_out]`;
-                currentStream = '[v_out]'; // Mark as final stream
             }
-            
-            if (currentStream !== '[v_out]') {
-                 return reject(new Error("Internal filter chain error: Final stream not labeled [v_out]."));
-            }
-            
-            console.log('🎬 FFmpeg final filter string:', filterChain);
 
-            // --- Execute FFmpeg with drawtext filter ---
+            console.log('🎬 FFmpeg filter chain:', filterChain);
+
+            // Execute FFmpeg
             ffmpeg()
                 .input(videoPath)
-                .complexFilter(filterChain, 'v_out') 
-                .videoCodec('libx264') 
+                .complexFilter(filterChain, 'v_out')
+                .videoCodec('libx264')
                 .outputOptions(['-preset', 'fast', '-crf', '23'])
                 .audioCodec('copy')
                 .on('start', (cmd) => {
                     console.log('🎬 FFmpeg command:', cmd);
                 })
                 .on('stderr', (line) => {
-                    console.log('FFmpeg output:', line);
+                    if (line.includes('error') || line.includes('Error')) {
+                        console.error('FFmpeg stderr:', line);
+                    }
                 })
                 .on('end', () => {
                     console.log('✅ Meme text overlay complete');
                     resolve();
                 })
                 .on('error', (err) => {
-                    console.error('❌ FFmpeg drawtext error:', err.message);
+                    console.error('❌ FFmpeg error:', err.message);
                     reject(err);
                 })
                 .save(outputPath);
@@ -230,14 +247,18 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
     });
 }
 
-// ... (rest of server.js remains unchanged)
-
+/**
+ * Mixes video with dialogue and/or music
+ */
 async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
     return new Promise(async (resolve, reject) => {
         try {
+            console.log('🎵 Starting audio mix...');
             const cmd = ffmpeg(videoPath);
 
+            // Both dialogue and music
             if (dialoguePath && musicPath) {
+                console.log('🎙️  Mixing dialogue + music');
                 const musicDuration = await getAudioDuration(musicPath);
                 const fadeInDuration = 2.5;
                 const fadeOutDuration = 2.5;
@@ -261,17 +282,20 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
                         "-shortest"
                     ]);
             }
+            // Dialogue only
             else if (dialoguePath && !musicPath) {
+                console.log('🎙️  Mixing dialogue only');
                 cmd.input(dialoguePath);
-
                 cmd.outputOptions([
                     "-map 0:v",
                     "-map 1:a",
                     "-c:v copy",
                     "-c:a aac"
-                    ]);
+                ]);
             }
+            // Music only
             else if (!dialoguePath && musicPath) {
+                console.log('🎵 Mixing music only');
                 const musicDuration = await getAudioDuration(musicPath);
                 const fadeInDuration = 2.5;
                 const fadeOutDuration = 2.5;
@@ -292,7 +316,9 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
                         "-shortest"
                     ]);
             }
+            // No audio (shouldn't reach here, but handle it)
             else {
+                console.log('📦 No audio - copying video');
                 cmd.outputOptions([
                     "-c:v copy",
                     "-c:a copy"
@@ -300,23 +326,38 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
             }
 
             cmd.save(outputPath)
-                .on("end", () => resolve())
-                .on("error", (err) => reject(err));
+                .on("start", (cmd) => {
+                    console.log('🎬 Audio mix command:', cmd);
+                })
+                .on("end", () => {
+                    console.log('✅ Audio mix complete');
+                    resolve();
+                })
+                .on("error", (err) => {
+                    console.error('❌ Audio mix error:', err);
+                    reject(err);
+                });
         } catch (err) {
             reject(err);
         }
     });
 }
 
-// --- API Endpoints ---
+// ==================== API ENDPOINTS ====================
 
 app.get("/health", (req, res) => {
-    res.json({ status: "ok" });
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
 app.post("/api/combine", async (req, res) => {
+    const startTime = Date.now();
+    console.log('\n========================================');
+    console.log('🚀 NEW REQUEST RECEIVED');
+    console.log('========================================');
+    
     try {
         await ensureDirectories();
+        
         const {
             final_stitched_video,
             final_dialogue,
@@ -326,61 +367,119 @@ app.post("/api/combine", async (req, res) => {
             meme_bottom_text
         } = req.body;
 
+        // Log received parameters
+        console.log('📋 Request Parameters:');
+        console.log('   Video URL:', final_stitched_video ? '✓' : '✗');
+        console.log('   Dialogue URL:', final_dialogue ? '✓' : '✗');
+        console.log('   Music URL:', final_music_url ? '✓' : '✗');
+        console.log('   Response Modality:', response_modality);
+        console.log('   Meme Top Text:', meme_top_text);
+        console.log('   Meme Bottom Text:', meme_bottom_text);
+
+        // Validate video URL
         if (!final_stitched_video) {
-            return res.status(400).json({ error: "Missing required input: video" });
+            console.error('❌ Missing video URL');
+            return res.status(400).json({ error: "Missing required input: final_stitched_video" });
         }
 
-        if (!final_dialogue && !final_music_url) {
-            return res.status(400).json({ error: "At least one audio source (dialogue or music) is required" });
-        }
-
+        // Generate unique ID for this processing job
         const id = uuidv4();
+        console.log('🆔 Job ID:', id);
+
+        // Define file paths
         const videoPath = path.join(TEMP_DIR, `${id}_video.mp4`);
         const dialoguePath = final_dialogue ? path.join(TEMP_DIR, `${id}_dialogue.mp3`) : null;
         const musicPath = final_music_url ? path.join(TEMP_DIR, `${id}_music.mp3`) : null;
-
-        const needsMemeText = response_modality === "meme" && (meme_top_text || meme_bottom_text);
-        const videoWithTextPath = needsMemeText ? path.join(TEMP_DIR, `${id}_with_text.mp4`) : null;
+        const videoWithTextPath = path.join(TEMP_DIR, `${id}_with_text.mp4`);
         const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
 
-        console.log('📥 Downloading video...');
+        // Determine if meme text is needed
+        const needsMemeText = (meme_top_text || meme_bottom_text) ? true : false;
+        
+        console.log('🔍 Processing Plan:');
+        console.log('   Needs meme text:', needsMemeText);
+        console.log('   Has audio:', !!(final_dialogue || final_music_url));
+
+        // Download video
+        console.log('\n📥 Downloading assets...');
         await downloadFile(final_stitched_video, videoPath);
+
+        // Download audio files if provided
         if (final_dialogue) {
-            console.log('📥 Downloading dialogue...');
             await downloadFile(final_dialogue, dialoguePath);
         }
         if (final_music_url) {
-            console.log('📥 Downloading music...');
             await downloadFile(final_music_url, musicPath);
         }
 
+        // Process video with meme text if needed
         let videoToMix = videoPath;
         if (needsMemeText) {
-            console.log(`🎨 Adding meme text overlay...`);
+            console.log('\n🎨 Adding meme text overlay...');
             await addMemeText(videoPath, videoWithTextPath, meme_top_text, meme_bottom_text);
             videoToMix = videoWithTextPath;
+        } else {
+            console.log('\n⏭️  Skipping meme text (none provided)');
         }
 
-        console.log('🎵 Mixing video and audio...');
-        await mixVideo(videoToMix, dialoguePath, musicPath, outputPath);
+        // Mix audio if provided
+        if (final_dialogue || final_music_url) {
+            console.log('\n🎵 Mixing audio with video...');
+            await mixVideo(videoToMix, dialoguePath, musicPath, outputPath);
+        } else {
+            console.log('\n📦 No audio to mix - copying video...');
+            await fsp.copyFile(videoToMix, outputPath);
+        }
 
-        console.log('✅ Processing complete!');
+        // Clean up temporary files
+        console.log('\n🧹 Cleaning up temporary files...');
+        try {
+            await fsp.unlink(videoPath);
+            if (dialoguePath) await fsp.unlink(dialoguePath);
+            if (musicPath) await fsp.unlink(musicPath);
+            if (needsMemeText) await fsp.unlink(videoWithTextPath);
+        } catch (cleanupErr) {
+            console.warn('⚠️  Cleanup warning:', cleanupErr.message);
+        }
+
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        console.log(`\n✅ Processing complete in ${duration}s`);
+        console.log('========================================\n');
 
         res.json({
-            message: needsMemeText
-                ? "✅ Combined video created with meme text overlay"
-                : "✅ Combined video created",
-            download_url: `/download/${path.basename(outputPath)}`
+            success: true,
+            message: needsMemeText 
+                ? "Video created with meme text overlay" 
+                : "Video created successfully",
+            download_url: `/download/${path.basename(outputPath)}`,
+            processing_time: `${duration}s`,
+            job_id: id
         });
+
     } catch (err) {
-        console.error("❌ Processing failed:", err);
-        res.status(500).json({ error: "Processing failed", details: err.message });
+        console.error('\n❌ PROCESSING FAILED');
+        console.error('Error:', err.message);
+        console.error('Stack:', err.stack);
+        console.log('========================================\n');
+        
+        res.status(500).json({ 
+            success: false,
+            error: "Processing failed", 
+            details: err.message 
+        });
     }
 });
 
-// Serve the combined videos
+// Serve the output videos
 app.use("/download", express.static(OUTPUT_DIR));
 
-app.listen(PORT, () =>
-    console.log(`🚀 Server running on http://localhost:${PORT}`)
-);
+// Start server
+app.listen(PORT, () => {
+    console.log('========================================');
+    console.log(`🚀 Video Processing Server`);
+    console.log(`📍 Running on: http://localhost:${PORT}`);
+    console.log(`🏥 Health check: http://localhost:${PORT}/health`);
+    console.log(`📁 Output directory: ${OUTPUT_DIR}`);
+    console.log(`🎨 Font path: ${CUSTOM_FONT_PATH}`);
+    console.log('========================================\n');
+});
