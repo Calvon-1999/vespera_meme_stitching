@@ -57,8 +57,8 @@ async function getVideoDimensions(filepath) {
 }
 
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
-  const fontSize = Math.floor(height / 12); // slightly larger text
-  const strokeWidth = Math.max(3, fontSize / 12);
+  const fontSize = Math.floor(height / 12);
+  const strokeWidth = Math.max(3, fontSize / 10);
 
   const escapeForShell = (text) => {
     return text
@@ -70,7 +70,7 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
 
   // ✅ Impact-style bold sans-serif font
   // You can install or reference any of these: "Impact", "Anton", "Arial Black", "OpenSans-ExtraBold"
-  const fontName = "Impact";
+  const fontName = "Liberation-Sans-Bold";
 
   // ✅ Tighten spacing slightly
   const letterSpacing = -1;
