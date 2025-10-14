@@ -16,6 +16,7 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
 // --- 🔑 CUSTOM FONT CONFIGURATION ---
+// Using the static bold file for stability.
 const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf");
 // ------------------------------------
 
@@ -68,47 +69,50 @@ async function getVideoDimensions(filepath) {
 }
 
 /**
- * Creates a text overlay image using ImageMagick with a single, reliable draw command.
+ * Creates a text overlay image using ImageMagick with the SIMPLE -annotate command.
  */
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
     const fontSize = Math.floor(height / 14); 
 
-    // Thin stroke: using divisor 30
-    const strokeWidth = Math.max(1, Math.floor(fontSize / 30)); 
+    // ✅ Thin Stroke: Using divisor 20 for a thin, clean line (adjust as needed, 30 is also good).
+    const strokeWidth = Math.max(1, Math.floor(fontSize / 20)); 
 
-    // Tight vertical positioning
+    // ✅ Tight Vertical Positioning (20 pixels from the edge)
     const verticalOffset = 20; 
     const letterSpacing = -1;
 
-    // 🌟 THE FIX: Updated escape function to handle single quotes (')
-    const escapeForIM = (text) => {
+    // Helper to safely escape text for the SIMPLE shell command (-annotate)
+    const escapeForShell = (text) => {
         return text
-            // 1. Escape backslashes
+            // Escape backslashes, double quotes, and dollar signs for the shell
             .replace(/\\/g, '\\\\')
-            // 2. Escape single quotes (crucial for MvG text primitive)
-            .replace(/'/g, '\\\''); 
+            .replace(/"/g, '\\"')
+            .replace(/`/g, '\\`')
+            .replace(/\$/g, '\\$');
     };
 
-    let magickCmd = `convert -size ${width}x${height} xc:none -font "${CUSTOM_FONT_PATH}"`;
+    let magickCmd = `convert -size ${width}x${height} xc:none`;
+
+    magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
     
-    magickCmd += ` -pointsize ${fontSize} -kerning ${letterSpacing}`;
+    // ✅ Simple Text Styling: White fill, thin black stroke
+    const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth}`;
 
     if (topText) {
-        const escapedTop = escapeForIM(topText);
-        // Using stroke-width for MvG compatibility
-        magickCmd += ` -gravity North -draw "stroke black fill white stroke-width ${strokeWidth} text 0,${verticalOffset} '${escapedTop}'"`;
+        const escapedTop = escapeForShell(topText);
+        // Using -annotate
+        magickCmd += ` -gravity north ${textOptions} -annotate +0+${verticalOffset} "${escapedTop}"`;
     }
 
     if (bottomText) {
-        const escapedBottom = escapeForIM(bottomText);
-        // Using stroke-width for MvG compatibility
-        magickCmd += ` -gravity South -draw "stroke black fill white stroke-width ${strokeWidth} text 0,${verticalOffset} '${escapedBottom}'"`;
+        const escapedBottom = escapeForShell(bottomText);
+        // Using -annotate
+        magickCmd += ` -gravity south ${textOptions} -annotate +0+${verticalOffset} "${escapedBottom}"`;
     }
 
-    // Ensure antialiasing is applied at the end before saving
-    magickCmd += ` -antialias "${outputPath}"`;
+    magickCmd += ` "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Montserrat-Bold (Text Escape Fixed)');
+    console.log('🎨 Creating text overlay with Montserrat-Bold (Simple Annotate Method)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
