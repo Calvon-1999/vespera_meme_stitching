@@ -67,17 +67,14 @@ async function getVideoDimensions(filepath) {
     });
 }
 
-// -----------------------------------
-// CORE IMAGE MAGICK FUNCTION (UPDATED)
-// -----------------------------------
 /**
  * Creates a text overlay image using ImageMagick with the custom font.
  */
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
-    // 🌟 CHANGE 1: Use a larger divisor (14) to make the text smaller and prevent cropping.
+    // Size is set smaller (dividing by 14) to prevent cropping.
     const fontSize = Math.floor(height / 14); 
 
-    // 🌟 CHANGE 2: Recalculate stroke width based on new, smaller font size to maintain visibility.
+    // Stroke width is set to be noticeable but not cover the fill.
     const strokeWidth = Math.max(2, Math.floor(fontSize / 12)); 
 
     // Helper to safely escape text for the shell command
@@ -98,11 +95,11 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     // Set the font using the absolute path
     magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
     
-    // 🌟 CHANGE 3: Set the maximum weight (999) for Extra Bold text.
-    const fontWeight = 999; 
+    // 🌟 CHANGE: Set the weight to 700 for standard BOLD
+    const fontWeight = 700; 
     magickCmd += ` -weight ${fontWeight}`;
 
-    // Common text styling options: -fill white -stroke black -strokewidth ${strokeWidth}
+    // Common text styling options: White fill, black outline
     const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth}`;
 
     if (topText) {
@@ -119,13 +116,10 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
 
     magickCmd += ` "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Montserrat (Extra Bold, White/Black Outline)');
+    console.log('🎨 Creating text overlay with Montserrat (Bold 700, White/Black Outline)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
-// -----------------------------------
-// END CORE IMAGE MAGICK FUNCTION
-// -----------------------------------
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
@@ -154,7 +148,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 .input(videoPath)
                 .input(overlayPath)
                 .complexFilter('[0:v][1:v]overlay=0:0')
-                // ✅ FIXED: Using 'libx264' (lowercase 'x')
+                // FIXED: Using 'libx264'
                 .videoCodec('libx264') 
                 .outputOptions(['-preset', 'fast', '-crf', '23'])
                 .audioCodec('copy')
