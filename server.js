@@ -68,20 +68,23 @@ async function getVideoDimensions(filepath) {
 }
 
 /**
- * Helper to escape text for FFmpeg's drawtext filter. 
+ * 🔑 REVISED: Robustly escapes characters in text content for the drawtext filter. 
+ * Backslashes must be escaped first and aggressively.
  */
 const escapeForDrawtext = (text) => {
-    // 1. Escape single quotes first, as they enclose the text value in the filter string
+    // 1. Escape the backslash character itself first. This is critical.
+    // Need four backslashes to reliably result in one backslash in the final filter string.
+    text = text.replace(/\\/g, '\\\\\\\\');
+    // 2. Escape single quotes, as they terminate the 'text' value.
     text = text.replace(/'/g, '\\\'');
-    // 2. Escape colons, which are used as parameter separators
+    // 3. Escape colons, which are parameter separators.
     text = text.replace(/:/g, '\\:');
-    // 3. Escape backslashes, they are escape characters
-    text = text.replace(/\\/g, '\\\\\\\\'); 
     return text;
 };
 
 /**
- * Wraps text by inserting newlines (\n) to prevent excessive width.
+ * 🔑 REVISED: Wraps text by inserting the literal string "\\n" for FFmpeg newlines.
+ * This ensures the backslash is present for FFmpeg's parser.
  * @param {string} text - The input text.
  * @param {number} maxCharsPerLine - Maximum characters before inserting a newline.
  * @returns {string} - The wrapped text.
@@ -90,10 +93,11 @@ const wrapText = (text, maxCharsPerLine = 30) => {
     const words = text.split(' ');
     let wrappedText = '';
     let currentLineLength = 0;
+    const newlineEscape = '\\n'; // Literal string for FFmpeg
 
     for (const word of words) {
         if (currentLineLength + word.length + 1 > maxCharsPerLine) {
-            wrappedText += '\n' + word + ' ';
+            wrappedText += newlineEscape + word + ' ';
             currentLineLength = word.length + 1;
         } else {
             wrappedText += word + ' ';
@@ -117,12 +121,13 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             const { height } = await getVideoDimensions(videoPath);
             
+            // Apply wrapping before calculation and escaping
             const wrappedTopText = wrapText(topText);
             const wrappedBottomText = wrapText(bottomText);
 
             // Determine the total number of lines to guide font sizing
-            const topLines = wrappedTopText.split('\n').length || 0;
-            const bottomLines = wrappedBottomText.split('\n').length || 0;
+            const topLines = wrappedTopText.split('\\n').length || 0;
+            const bottomLines = wrappedBottomText.split('\\n').length || 0;
             const maxLines = Math.max(topLines, bottomLines, 1);
             
             // Dynamically adjust the divisor based on lines
@@ -147,7 +152,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `shadowcolor=black@0.5`,
                 `shadowx=1`,
                 `shadowy=1`,
-                // FIX: Add text_align=center to ensure multi-line text is centered internally
+                // text_align=center ensures multi-line text is centered internally
                 `text_align=center`, 
                 `enable='between(t,0,999)'`,
             ].join(':');
@@ -159,7 +164,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             if (topText) {
                 // Escape the WRAPPED text
                 const escapedTopText = escapeForDrawtext(wrappedTopText);
-                // NOTE: x=(w-text_w)/2 centers the block, text_align=center centers lines inside the block
                 const topFilter = `drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${verticalOffset}`;
                 
                 // If there's bottom text, output to a temporary stream [v_temp]
