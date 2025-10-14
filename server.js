@@ -5,6 +5,7 @@ const fs = require("fs");
 const fsp = require("fs").promises;
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
+const { createCanvas } = require("canvas");
 const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path;
 const ffprobePath = require("@ffprobe-installer/ffprobe").path;
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -53,107 +54,132 @@ async function getVideoDimensions(filepath) {
   });
 }
 
-async function findSystemFont() {
-  // Common font paths across different systems
-  const fontPaths = [
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-    '/usr/share/fonts/TTF/DejaVuSans-Bold.ttf',
-    '/System/Library/Fonts/Helvetica.ttc',
-    '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
-    '/usr/share/fonts/liberation-sans/LiberationSans-Bold.ttf',
-    'Arial-Bold',  // Fallback to system font name
-    'Helvetica-Bold'
-  ];
-  
-  for (const fontPath of fontPaths) {
-    try {
-      await fsp.access(fontPath);
-      return fontPath;
-    } catch (err) {
-      continue;
+function wrapText(ctx, text, maxWidth) {
+  const words = text.split(' ');
+  const lines = [];
+  let currentLine = words[0];
+
+  for (let i = 1; i < words.length; i++) {
+    const word = words[i];
+    const width = ctx.measureText(currentLine + ' ' + word).width;
+    if (width < maxWidth) {
+      currentLine += ' ' + word;
+    } else {
+      lines.push(currentLine);
+      currentLine = word;
     }
   }
+  lines.push(currentLine);
+  return lines;
+}
+
+async function createTextOverlay(width, height, topText = "", bottomText = "", outputPath) {
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
   
-  // If no font file found, return null to use default system font
-  return null;
+  // Transparent background
+  ctx.clearRect(0, 0, width, height);
+  
+  // Calculate font size (roughly 1/15th of height)
+  const fontSize = Math.floor(height / 15);
+  
+  // Configure text style - Impact-like bold font
+  ctx.font = `bold ${fontSize}px Arial`;
+  ctx.fillStyle = 'white';
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = Math.max(3, fontSize / 16);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  
+  const centerX = width / 2;
+  const margin = 30;
+  const maxTextWidth = width - (margin * 2);
+  
+  // Draw top text
+  if (topText) {
+    const lines = wrapText(ctx, topText.toUpperCase(), maxTextWidth);
+    lines.forEach((line, i) => {
+      const y = margin + (i * fontSize * 1.2);
+      ctx.strokeText(line, centerX, y);
+      ctx.fillText(line, centerX, y);
+    });
+  }
+  
+  // Draw bottom text
+  if (bottomText) {
+    const lines = wrapText(ctx, bottomText.toUpperCase(), maxTextWidth);
+    ctx.textBaseline = 'bottom';
+    lines.reverse().forEach((line, i) => {
+      const y = height - margin - (i * fontSize * 1.2);
+      ctx.strokeText(line, centerX, y);
+      ctx.fillText(line, centerX, y);
+    });
+  }
+  
+  // Save as PNG
+  const buffer = canvas.toBuffer('image/png');
+  await fsp.writeFile(outputPath, buffer);
 }
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
   return new Promise(async (resolve, reject) => {
     try {
-      const { width, height } = await getVideoDimensions(videoPath);
-      
-      // Calculate font size based on video dimensions (roughly 1/15th of height)
-      const fontSize = Math.floor(height / 15);
-      
-      // Find available font
-      const fontFile = await findSystemFont();
-      
-      // Build drawtext filters
-      const filters = [];
-      
-      if (topText) {
-        // Escape special characters for FFmpeg
-        const escapedTopText = topText
-          .toUpperCase()
-          .replace(/\\/g, '\\\\\\\\')
-          .replace(/'/g, "'\\\\\\\\\\\\''")
-          .replace(/:/g, '\\\\:')
-          .replace(/\[/g, '\\\\[')
-          .replace(/\]/g, '\\\\]');
-        
-        const fontParam = fontFile ? `fontfile=${fontFile}:` : '';
-        
-        filters.push(
-          `drawtext=${fontParam}` +
-          `text='${escapedTopText}':` +
-          `fontcolor=white:fontsize=${fontSize}:` +
-          `borderw=3:bordercolor=black:` +
-          `x=(w-text_w)/2:y=30`
-        );
-      }
-      
-      if (bottomText) {
-        // Escape special characters for FFmpeg
-        const escapedBottomText = bottomText
-          .toUpperCase()
-          .replace(/\\/g, '\\\\\\\\')
-          .replace(/'/g, "'\\\\\\\\\\\\''")
-          .replace(/:/g, '\\\\:')
-          .replace(/\[/g, '\\\\[')
-          .replace(/\]/g, '\\\\]');
-        
-        const fontParam = fontFile ? `fontfile=${fontFile}:` : '';
-        
-        filters.push(
-          `drawtext=${fontParam}` +
-          `text='${escapedBottomText}':` +
-          `fontcolor=white:fontsize=${fontSize}:` +
-          `borderw=3:bordercolor=black:` +
-          `x=(w-text_w)/2:y=h-th-30`
-        );
-      }
-      
-      // If no text provided, just copy the video
-      if (filters.length === 0) {
+      // If no text, just copy the video
+      if (!topText && !bottomText) {
         await fsp.copyFile(videoPath, outputPath);
         resolve();
         return;
       }
       
-      const cmd = ffmpeg(videoPath);
+      const { width, height } = await getVideoDimensions(videoPath);
+      const overlayPath = path.join(TEMP_DIR, `overlay_${uuidv4()}.png`);
       
-      cmd.videoFilters(filters)
+      console.log(`📝 Creating text overlay: ${width}x${height}`);
+      
+      // Create text overlay image
+      await createTextOverlay(width, height, topText, bottomText, overlayPath);
+      
+      console.log(`✅ Overlay created at: ${overlayPath}`);
+      
+      // Verify overlay file exists
+      const overlayStats = await fsp.stat(overlayPath);
+      console.log(`📊 Overlay file size: ${overlayStats.size} bytes`);
+      
+      // Overlay the image on video using FFmpeg - simpler approach
+      const cmd = ffmpeg()
+        .input(videoPath)
+        .input(overlayPath)
+        .videoCodec('libx264')
         .outputOptions([
-          "-c:v libx264",
-          "-preset fast",
-          "-crf 23",
-          "-c:a copy"
+          '-filter_complex', '[0:v][1:v]overlay=0:0',
+          '-preset', 'fast',
+          '-crf', '23'
         ])
-        .save(outputPath)
-        .on("end", () => resolve())
-        .on("error", (err) => reject(err));
+        .audioCodec('copy')
+        .on('start', (commandLine) => {
+          console.log('🎬 FFmpeg command:', commandLine);
+        })
+        .on('stderr', (stderrLine) => {
+          console.log('FFmpeg stderr:', stderrLine);
+        })
+        .on('end', async () => {
+          console.log('✅ Text overlay complete');
+          // Clean up overlay file
+          try {
+            await fsp.unlink(overlayPath);
+          } catch (err) {
+            console.warn('Could not delete overlay file:', err.message);
+          }
+          resolve();
+        })
+        .on('error', (err, stdout, stderr) => {
+          console.error('❌ FFmpeg error:', err.message);
+          console.error('FFmpeg stderr:', stderr);
+          reject(err);
+        })
+        .save(outputPath);
     } catch (err) {
+      console.error('❌ Error in addMemeText:', err);
       reject(err);
     }
   });
@@ -198,7 +224,6 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
           "-map 1:a",
           "-c:v copy",
           "-c:a aac"
-          // Removed "-shortest" to keep full video duration
         ]);
       }
       // Scenario 3: Video + Music only (no dialogue)
@@ -223,7 +248,7 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
             "-shortest"
           ]);
       }
-      // Scenario 4: Video only (shouldn't happen based on validation, but just copy video)
+      // Scenario 4: Video only
       else {
         cmd.outputOptions([
           "-c:v copy",
