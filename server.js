@@ -98,7 +98,7 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     // 🌟 KEY CHANGE: Set the font using the absolute path
     magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
 
-    // Common text styling options
+    // 🌟 KEY CHANGE: Common text styling options including fill, stroke, and strokewidth
     const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth}`;
 
     if (topText) {
@@ -115,7 +115,7 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
 
     magickCmd += ` "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Anton font');
+    console.log('🎨 Creating text overlay with Anton font (white fill, black outline)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
