@@ -70,16 +70,16 @@ async function getVideoDimensions(filepath) {
 
 /**
  * Helper to escape text for FFmpeg's drawtext filter. 
- * This is the common source of "Invalid argument" errors.
+ * This is the most critical part for stability.
  */
 const escapeForDrawtext = (text) => {
-    return text
-        // 1. Escape backslashes for the filter string and the shell
-        .replace(/\\/g, '\\\\\\\\') 
-        // 2. Escape colons, which are used as parameter separators
-        .replace(/:/g, '\\:') 
-        // 3. Escape single quotes, which enclose the text value in the filter string
-        .replace(/'/g, '\\\'');
+    // 1. Escape single quotes first, as they enclose the text value in the filter string
+    text = text.replace(/'/g, '\\\'');
+    // 2. Escape colons, which are used as parameter separators
+    text = text.replace(/:/g, '\\:');
+    // 3. Escape backslashes, they are escape characters
+    text = text.replace(/\\/g, '\\\\\\\\'); 
+    return text;
 };
 
 
@@ -94,7 +94,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             console.log(`📝 Adding meme text - Top: "${topText}", Bottom: "${bottomText}"`);
 
-            // We only need height for font sizing calculation
             const { height } = await getVideoDimensions(videoPath);
             
             // Text Calculation Constants
@@ -102,7 +101,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             const strokeWidth = Math.max(1, Math.floor(fontSize / 20)); 
             const verticalOffset = 20; 
 
-            // FFmpeg requires the font path to be escaped for colons
+            // FFmpeg requires the font path to be escaped for colons (just in case)
             const escapedFontPath = CUSTOM_FONT_PATH.replace(/:/g, '\\:');
 
             // Shared parameters for the drawtext filter
@@ -118,33 +117,31 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `enable='between(t,0,999)'`,
             ].join(':');
 
-            // --- Construct the FFmpeg Filter Array ---
             const filters = [];
             
+            // --- Top Text Filter ---
             if (topText) {
                 const escapedTopText = escapeForDrawtext(topText);
                 const topFilter = `drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${verticalOffset}`;
                 
-                // Add top text filter, outputting to a temporary stream [v_temp]
-                filters.push(`[0:v]${topFilter}[v_temp]`);
+                // If bottom text also exists, output to [v_temp] for chaining.
+                // If only top text exists, output to the final stream [v_out].
+                const outputLabel = bottomText ? '[v_temp]' : '[v_out]';
+                filters.push(`[0:v]${topFilter}${outputLabel}`);
             }
 
+            // --- Bottom Text Filter ---
             if (bottomText) {
                 const escapedBottomText = escapeForDrawtext(bottomText);
                 const bottomFilter = `drawtext=${drawtextParams}:text='${escapedBottomText}':x=(w-text_w)/2:y=h-text_h-${verticalOffset}`;
 
-                // The input for the bottom filter is either [0:v] (if no top text) or [v_temp] (if top text exists)
+                // Input label is [v_temp] if top text exists, or the original stream [0:v] otherwise.
                 const inputLabel = topText ? '[v_temp]' : '[0:v]';
                 
-                // The output is always the final stream label [v_out]
+                // Output is always the final stream [v_out]
                 filters.push(`${inputLabel}${bottomFilter}[v_out]`);
             }
             
-            // If only top text was applied, we must relabel the temporary stream to the final output stream
-            if (topText && !bottomText) {
-                filters.push(`[v_temp]null[v_out]`);
-            }
-
             if (filters.length === 0) {
                  return reject(new Error("Text input was provided but no filter was generated."));
             }
@@ -181,9 +178,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
         }
     });
 }
-
-// ... rest of the code (mixVideo, API endpoints) is a continuation of your previous server.js
-// It has not been included here for brevity, but should remain exactly as you last provided it.
 
 async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
     return new Promise(async (resolve, reject) => {
