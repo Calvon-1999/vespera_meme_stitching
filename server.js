@@ -68,33 +68,42 @@ async function getVideoDimensions(filepath) {
 }
 
 /**
- * Robustly escapes characters in text content for the drawtext filter. 
+ * 🔑 REVISED: Handles backslash and special character escaping robustly.
+ * It uses a placeholder to protect the programmatic newline character (\n) from being over-escaped.
  */
 const escapeForDrawtext = (text) => {
-    // 1. Escape the backslash character itself first.
-    text = text.replace(/\\/g, '\\\\\\\\');
-    // 2. Escape single quotes, as they terminate the 'text' value.
+    const NEWLINE_FLAG = 'FFMPEG_NEWLINE_PLACEHOLDER_42';
+    
+    // 1. Replace all JS newlines ('\n') with the placeholder.
+    text = text.replace(/\n/g, NEWLINE_FLAG);
+
+    // 2. Escape user-provided backslashes aggressively (now that our newlines are safe).
+    text = text.replace(/\\/g, '\\\\\\\\'); 
+    
+    // 3. Escape single quotes, as they terminate the 'text' value.
     text = text.replace(/'/g, '\\\'');
-    // 3. Escape colons, which are parameter separators.
+
+    // 4. Escape colons, which are parameter separators.
     text = text.replace(/:/g, '\\:');
+
+    // 5. Reinsert the required FFmpeg newline escape: '\\n'.
+    // This is the correct sequence for FFmpeg to interpret a line break inside the text parameter.
+    text = text.replace(new RegExp(NEWLINE_FLAG, 'g'), '\\\\n');
+
     return text;
 };
 
 /**
- * Wraps text by inserting the literal string "\n" for FFmpeg newlines.
- * @param {string} text - The input text.
- * @param {number} maxCharsPerLine - Maximum characters before inserting a newline.
- * @returns {string} - The wrapped text.
+ * 🔑 REVISED: Wraps text using standard JS newline (\n).
  */
 const wrapText = (text, maxCharsPerLine = 30) => {
     const words = text.split(' ');
     let wrappedText = '';
     let currentLineLength = 0;
-    const newlineEscape = '\\n'; // Literal string for FFmpeg
 
     for (const word of words) {
         if (currentLineLength + word.length + 1 > maxCharsPerLine) {
-            wrappedText += newlineEscape + word + ' ';
+            wrappedText += '\n' + word + ' '; // Use standard JS newline
             currentLineLength = word.length + 1;
         } else {
             wrappedText += word + ' ';
@@ -123,8 +132,9 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             const wrappedBottomText = wrapText(bottomText);
 
             // Determine the total number of lines to guide font sizing
-            const topLines = wrappedTopText.split('\\n').length || 0;
-            const bottomLines = wrappedBottomText.split('\\n').length || 0;
+            // 🔑 FIXED: Use standard JS newline to count lines
+            const topLines = wrappedTopText.split('\n').length || 0; 
+            const bottomLines = wrappedBottomText.split('\n').length || 0; 
             const maxLines = Math.max(topLines, bottomLines, 1);
             
             // Dynamically adjust the divisor based on lines
@@ -149,7 +159,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `shadowcolor=black@0.5`,
                 `shadowx=1`,
                 `shadowy=1`,
-                // 🔑 FIXED: Removed unsupported 'text_align=center'
+                // text_align=center removed to avoid 'Option not found' error on older FFmpeg versions
                 `enable='between(t,0,999)'`,
             ].join(':');
 
