@@ -16,8 +16,8 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
 // --- CUSTOM FONT CONFIGURATION ---
-// IMPORTANT: Use the absolute path to your font file
-const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Anton-Regular.ttf");
+// 🌟 NEW FONT PATH: Montserrat-VariableFont_wght.ttf
+const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-VariableFont_wght.ttf");
 // ----------------------------------
 
 const app = express();
@@ -77,13 +77,11 @@ async function getVideoDimensions(filepath) {
  * @param {string} outputPath - Path to save the resulting PNG
  */
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
-    // 🌟 CHANGE 1: Slightly increase font size for a "fatter" look
-    // Dividing by a smaller number makes the text larger overall.
-    const fontSize = Math.floor(height / 10); // Was height / 12
+    // Slightly increase font size for a "fatter" look
+    const fontSize = Math.floor(height / 10); 
 
-    // 🌟 CHANGE 2: Recalculate stroke width based on new, larger font size.
-    // Adjusted ratio to maintain visibility of white fill while having a noticeable outline.
-    const strokeWidth = Math.max(2, Math.floor(fontSize / 20)); // Was fontSize / 15
+    // Recalculate stroke width based on new, larger font size.
+    const strokeWidth = Math.max(2, Math.floor(fontSize / 20)); 
 
     // Helper to safely escape text for the shell command
     const escapeForShell = (text) => {
@@ -102,6 +100,12 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
 
     // Set the font using the absolute path
     magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
+    
+    // 🌟 Variable Font Adjustment: Specify a very heavy weight to ensure it's "fat".
+    // This is often supported by modern ImageMagick/Pango setups.
+    // We'll target the maximum weight (900 or 999).
+    const fontWeight = 999; 
+    magickCmd += ` -weight ${fontWeight}`;
 
     // Common text styling options including fill, stroke, and strokewidth
     const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth}`;
@@ -120,7 +124,7 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
 
     magickCmd += ` "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Anton font (fatter, white fill, black outline)');
+    console.log('🎨 Creating text overlay with Montserrat (Heavy weight, white fill, black outline)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
