@@ -5,6 +5,9 @@ const fs = require("fs");
 const fsp = require("fs").promises;
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
+const { exec } = require("child_process");
+const util = require("util");
+const execPromise = util.promisify(exec);
 
 // FFmpeg Setup
 const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path;
@@ -12,7 +15,7 @@ const ffprobePath = require("@ffprobe-installer/ffprobe").path;
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
-// --- 🔑 CUSTOM FONT CONFIGURATION (Using Montserrat-Bold.ttf) ---
+// --- 🔑 CUSTOM FONT CONFIGURATION (Using Montserrat-Bold.ttf as requested) ---
 const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf");
 // -----------------------------------------------------------------------------
 
@@ -65,20 +68,50 @@ async function getVideoDimensions(filepath) {
 }
 
 /**
- * 🔑 SIMPLER ESCAPE: Only escapes special characters, assuming text is single-line.
- * This function is sufficient if text wrapping is NOT used.
- * NOTE: If the user provides text with actual \n characters, this will likely fail.
+ * 🔑 THE FIX: Robustly handles all escapes, especially the newline (\n) character,
+ * which is the source of the 'Invalid argument' error when wrapping text.
  */
 const escapeForDrawtext = (text) => {
-    // Escape characters that break the FFmpeg filter syntax
+    // 1. Define a unique placeholder for the JavaScript newline character.
+    const NEWLINE_FLAG = 'FFMPEG_NEWLINE_PLACEHOLDER_42';
+    
+    // 2. PROTECT: Replace all programmatic newlines (\n) with the placeholder.
+    text = text.replace(/\n/g, NEWLINE_FLAG); 
+
+    // 3. ESCAPE: Escape FFmpeg special characters *first*.
     text = text.replace(/\\/g, '\\\\\\\\'); 
     text = text.replace(/'/g, '\\\'');      
     text = text.replace(/:/g, '\\:');       
-    // Remove the newline escaping logic that was causing the most complex bugs.
+
+    // 4. RESTORE & CORRECT: Convert the protected placeholders into FFmpeg's required '\\n'.
+    text = text.replace(new RegExp(NEWLINE_FLAG, 'g'), '\\\\n');
+
     return text;
 };
 
-// ❌ REMOVED: The problematic wrapText function is removed.
+
+/**
+ * Wraps text by inserting newlines (\n) to prevent excessive width (prevents cropping).
+ */
+const wrapText = (text, maxCharsPerLine = 30) => {
+    const words = text.split(' ');
+    let wrappedText = '';
+    let currentLineLength = 0;
+
+    for (const word of words) {
+        if (currentLineLength + word.length + 1 > maxCharsPerLine) {
+            // Start new line
+            wrappedText += '\n' + word + ' ';
+            currentLineLength = word.length + 1;
+        } else {
+            // Continue current line
+            wrappedText += word + ' ';
+            currentLineLength += word.length + 1;
+        }
+    }
+    return wrappedText.trim();
+};
+
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
@@ -93,10 +126,22 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             const { height } = await getVideoDimensions(videoPath);
             
-            // NOTE: Since wrapText is removed, topText and bottomText are passed directly.
+            // Apply wrapping BEFORE calculation and escaping
+            const wrappedTopText = wrapText(topText);
+            const wrappedBottomText = wrapText(bottomText);
+
+            // Determine the total number of lines to guide font sizing
+            const topLines = wrappedTopText.split('\n').length || 0; 
+            const bottomLines = wrappedBottomText.split('\n').length || 0; 
+            const maxLines = Math.max(topLines, bottomLines, 1);
+            
+            // Dynamically adjust the divisor based on lines
+            const baseDivisor = 13; 
+            const verticalCompressionFactor = 2; 
+            const dynamicDivisor = baseDivisor + ((maxLines - 1) * verticalCompressionFactor); 
             
             // Text Calculation Constants
-            const fontSize = Math.floor(height / 13); // Simple fixed sizing
+            const fontSize = Math.floor(height / dynamicDivisor); 
             const strokeWidth = Math.max(1, Math.floor(fontSize / 10)); 
             const verticalOffset = 20; 
 
@@ -116,15 +161,16 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             ].join(':');
 
             let filterChain = '';
-            let currentStream = '[0:v]'; 
+            let currentStream = '[0:v]'; // Start with the input video stream
 
             // --- Top Text Filter ---
             if (topText) {
-                // Use the simpler escape function
-                const escapedTopText = escapeForDrawtext(topText);
+                // Use the FIXED escape function on the WRAPPED text
+                const escapedTopText = escapeForDrawtext(wrappedTopText);
                 // x=(w-text_w)/2 centers the entire text block horizontally
                 const topFilter = `drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${verticalOffset}`;
                 
+                // Chain the filters
                 if (bottomText) {
                     filterChain += `${currentStream}${topFilter}[v_temp]`;
                     currentStream = '[v_temp]'; 
@@ -136,8 +182,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             // --- Bottom Text Filter ---
             if (bottomText) {
-                // Use the simpler escape function
-                const escapedBottomText = escapeForDrawtext(bottomText);
+                // Use the FIXED escape function on the WRAPPED text
+                const escapedBottomText = escapeForDrawtext(wrappedBottomText);
                 const bottomFilter = `drawtext=${drawtextParams}:text='${escapedBottomText}':x=(w-text_w)/2:y=h-text_h-${verticalOffset}`;
 
                 if (filterChain) {
@@ -145,7 +191,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 }
                 
                 filterChain += `${currentStream}${bottomFilter}[v_out]`;
-                currentStream = '[v_out]'; 
+                currentStream = '[v_out]'; // Mark as final stream
             }
             
             if (currentStream !== '[v_out]') {
