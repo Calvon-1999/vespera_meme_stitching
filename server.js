@@ -97,24 +97,25 @@ function wrapText(text, maxCharsPerLine = 30) {
 
 /**
  * Escapes text for FFmpeg drawtext filter
- * Uses placeholder to protect newlines during escaping
+ * CRITICAL: Must handle newlines specially for multi-line text
  */
 function escapeForDrawtext(text) {
     if (!text) return '';
     
-    const NEWLINE_PLACEHOLDER = 'FFMPEG_NEWLINE_PLACEHOLDER_42';
+    const NEWLINE_PLACEHOLDER = '___NEWLINE_PLACEHOLDER___';
     
-    // Step 1: Protect newlines with placeholder
+    // Step 1: Protect newlines with unique placeholder
     text = text.replace(/\n/g, NEWLINE_PLACEHOLDER);
     
-    // Step 2: Escape FFmpeg special characters (order matters!)
-    text = text.replace(/\\/g, '\\\\\\\\');  // Backslashes first
-    text = text.replace(/'/g, '\\\'');        // Single quotes
-    text = text.replace(/:/g, '\\:');         // Colons
+    // Step 2: Escape special characters (backslash must be first!)
+    text = text.replace(/\\/g, '\\\\\\\\');  // Escape backslashes
+    text = text.replace(/'/g, '\\\'');        // Escape single quotes  
+    text = text.replace(/:/g, '\\:');         // Escape colons
     
-    // Step 3: Convert placeholder to FFmpeg newline format with proper escaping
-    // For centered multi-line text, we need literal \n in the filter
-    text = text.replace(new RegExp(NEWLINE_PLACEHOLDER, 'g'), '\\n');
+    // Step 3: Replace placeholder with the sequence FFmpeg needs for newlines
+    // When passing to complexFilter as a string, we need the literal characters '\' and 'n'
+    // This requires escaping the backslash: '\\' becomes '\' in the final string
+    text = text.replace(new RegExp(NEWLINE_PLACEHOLDER, 'g'), '\\\\n');
     
     return text;
 }
@@ -182,7 +183,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `borderw=${strokeWidth}`,
                 `shadowcolor=black@0.5`,
                 `shadowx=2`,
-                `shadowy=2`
+                `shadowy=2`,
+                `text_align=C`  // Center align text for multi-line
             ].join(':');
 
             // Build filter chain
@@ -192,7 +194,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             // Top text filter
             if (topText) {
                 const escapedTopText = escapeForDrawtext(wrappedTopText);
-                console.log('🔐 Escaped top text:', escapedTopText);
+                console.log('🔐 Escaped top text (raw):', JSON.stringify(escapedTopText));
+                console.log('🔐 Escaped top text (display):', escapedTopText);
                 
                 const topFilter = `drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${verticalOffset}`;
                 
