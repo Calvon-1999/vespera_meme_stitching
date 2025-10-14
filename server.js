@@ -68,33 +68,32 @@ async function getVideoDimensions(filepath) {
 }
 
 /**
- * 🔑 REVISED: Handles backslash and special character escaping robustly.
- * It uses a placeholder to protect the programmatic newline character (\n) from being over-escaped.
+ * 🔑 FIXED: Robustly escapes all problematic characters for FFmpeg EXCEPT the programmatic newline (\n) 
+ * which is needed to break the text into lines.
  */
 const escapeForDrawtext = (text) => {
-    const NEWLINE_FLAG = 'FFMPEG_NEWLINE_PLACEHOLDER_42';
-    
-    // 1. Replace all JS newlines ('\n') with the placeholder.
-    text = text.replace(/\n/g, NEWLINE_FLAG);
-
-    // 2. Escape user-provided backslashes aggressively (now that our newlines are safe).
+    // 1. Escape user-provided backslashes. 
+    // This is the most complex one: 4 backslashes in JS string literal becomes 2 in shell, 
+    // which is what FFmpeg needs to interpret a literal backslash.
     text = text.replace(/\\/g, '\\\\\\\\'); 
     
-    // 3. Escape single quotes, as they terminate the 'text' value.
+    // 2. Escape single quotes, as they enclose the 'text' value.
     text = text.replace(/'/g, '\\\'');
 
-    // 4. Escape colons, which are parameter separators.
+    // 3. Escape colons, which are parameter separators.
     text = text.replace(/:/g, '\\:');
 
-    // 5. Reinsert the required FFmpeg newline escape: '\\n'.
-    // This is the correct sequence for FFmpeg to interpret a line break inside the text parameter.
-    text = text.replace(new RegExp(NEWLINE_FLAG, 'g'), '\\\\n');
-
+    // NOTE: Programmatic newlines (\n) are intentionally left unescaped so that 
+    // fluent-ffmpeg can pass them as literal newlines to the shell, which FFmpeg 
+    // then correctly interprets as a line break within the quoted text string.
     return text;
 };
 
 /**
- * 🔑 REVISED: Wraps text using standard JS newline (\n).
+ * Wraps text by inserting standard JS newline (\n).
+ * @param {string} text - The input text.
+ * @param {number} maxCharsPerLine - Maximum characters before inserting a newline.
+ * @returns {string} - The wrapped text.
  */
 const wrapText = (text, maxCharsPerLine = 30) => {
     const words = text.split(' ');
@@ -132,7 +131,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             const wrappedBottomText = wrapText(bottomText);
 
             // Determine the total number of lines to guide font sizing
-            // 🔑 FIXED: Use standard JS newline to count lines
             const topLines = wrappedTopText.split('\n').length || 0; 
             const bottomLines = wrappedBottomText.split('\n').length || 0; 
             const maxLines = Math.max(topLines, bottomLines, 1);
@@ -159,7 +157,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `shadowcolor=black@0.5`,
                 `shadowx=1`,
                 `shadowy=1`,
-                // text_align=center removed to avoid 'Option not found' error on older FFmpeg versions
+                // text_align=center remains removed to ensure compatibility with older FFmpeg versions
                 `enable='between(t,0,999)'`,
             ].join(':');
 
@@ -170,6 +168,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             if (topText) {
                 // Escape the WRAPPED text
                 const escapedTopText = escapeForDrawtext(wrappedTopText);
+                // x=(w-text_w)/2 centers the text block horizontally
                 const topFilter = `drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${verticalOffset}`;
                 
                 // If there's bottom text, output to a temporary stream [v_temp]
