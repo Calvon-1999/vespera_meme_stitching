@@ -156,7 +156,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             const bottomLines = wrappedBottomText.split('\n').length;
             const maxLines = Math.max(topLines, bottomLines, 1);
             
-            const baseDivisor = 13;
+            const baseDivisor = 10;
             const verticalCompressionFactor = 2;
             const dynamicDivisor = baseDivisor + ((maxLines - 1) * verticalCompressionFactor);
             
