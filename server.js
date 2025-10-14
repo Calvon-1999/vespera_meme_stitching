@@ -58,7 +58,7 @@ async function getVideoDimensions(filepath) {
 
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
   const fontSize = Math.floor(height / 12);
-  const strokeWidth = Math.max(3, fontSize / 10);
+  const strokeWidth = Math.max(3, fontSize / 5);
 
   const escapeForShell = (text) => {
     return text
