@@ -70,16 +70,20 @@ async function getVideoDimensions(filepath) {
 /**
  * Creates a text overlay image using ImageMagick with a single, reliable draw command.
  */
+/**
+ * Creates a text overlay image using ImageMagick with a single, reliable draw command.
+ */
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
     const fontSize = Math.floor(height / 14); 
 
-    // Recalculate strokeWidth with a high divisor (30) for a very thin line.
+    // Thin stroke: using divisor 30 (or higher)
     const strokeWidth = Math.max(1, Math.floor(fontSize / 30)); 
 
+    // Tight vertical positioning
     const verticalOffset = 20; 
     const letterSpacing = -1;
 
-    // Helper to escape text for the 'label:' command (less aggressive escaping needed here)
+    // Helper to escape text for the 'draw' command
     const escapeForIM = (text) => {
         // Escape quotes and backslashes
         return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -87,19 +91,18 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
 
     let magickCmd = `convert -size ${width}x${height} xc:none -font "${CUSTOM_FONT_PATH}"`;
     
-    // Explicitly set pointsize and kerning globally
     magickCmd += ` -pointsize ${fontSize} -kerning ${letterSpacing}`;
 
     if (topText) {
         const escapedTop = escapeForIM(topText);
-        // Use the -draw command for cleaner stroke rendering
-        magickCmd += ` -gravity North -draw "stroke black fill white strokewidth ${strokeWidth} text 0,${verticalOffset} '${escapedTop}'"`;
+        // ✅ FIX: Changed 'strokewidth' to 'stroke-width=' for MvG compatibility
+        magickCmd += ` -gravity North -draw "stroke black fill white stroke-width ${strokeWidth} text 0,${verticalOffset} '${escapedTop}'"`;
     }
 
     if (bottomText) {
         const escapedBottom = escapeForIM(bottomText);
-        // Use the -draw command for cleaner stroke rendering
-        magickCmd += ` -gravity South -draw "stroke black fill white strokewidth ${strokeWidth} text 0,${verticalOffset} '${escapedBottom}'"`;
+        // ✅ FIX: Changed 'strokewidth' to 'stroke-width=' for MvG compatibility
+        magickCmd += ` -gravity South -draw "stroke black fill white stroke-width ${strokeWidth} text 0,${verticalOffset} '${escapedBottom}'"`;
     }
 
     // Ensure antialiasing is applied at the end before saving
@@ -109,8 +112,6 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
-
-// NOTE: You must replace your existing createTextOverlayWithImageMagick function with the one above.
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
