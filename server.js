@@ -7,7 +7,7 @@ const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 const { exec } = require("child_process");
 const util = require("util");
-const execPromise = util.promisify(exec);  
+const execPromise = util.promisify(exec);
 const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path;
 const ffprobePath = require("@ffprobe-installer/ffprobe").path;
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -56,71 +56,32 @@ async function getVideoDimensions(filepath) {
   });
 }
 
-function wrapText(ctx, text, maxWidth) {
-  const words = text.split(' ');
-  const lines = [];
-  let currentLine = words[0];
-
-  for (let i = 1; i < words.length; i++) {
-    const word = words[i];
-    const width = ctx.measureText(currentLine + ' ' + word).width;
-    if (width < maxWidth) {
-      currentLine += ' ' + word;
-    } else {
-      lines.push(currentLine);
-      currentLine = word;
-    }
-  }
-  lines.push(currentLine);
-  return lines;
-}
-
-async function createTextOverlay(width, height, topText = "", bottomText = "", outputPath) {
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext('2d');
-  
-  // Transparent background
-  ctx.clearRect(0, 0, width, height);
-  
-  // Calculate font size (roughly 1/15th of height)
+async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
   const fontSize = Math.floor(height / 15);
+  const strokeWidth = Math.max(3, fontSize / 16);
   
-  // Configure text style - Impact-like bold font
-  ctx.font = `bold ${fontSize}px Arial`;
-  ctx.fillStyle = 'white';
-  ctx.strokeStyle = 'black';
-  ctx.lineWidth = Math.max(3, fontSize / 16);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
+  // Escape text for shell
+  const escapeForShell = (text) => {
+    return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+  };
   
-  const centerX = width / 2;
-  const margin = 30;
-  const maxTextWidth = width - (margin * 2);
+  let magickCmd = `convert -size ${width}x${height} xc:none`;
   
-  // Draw top text
   if (topText) {
-    const lines = wrapText(ctx, topText.toUpperCase(), maxTextWidth);
-    lines.forEach((line, i) => {
-      const y = margin + (i * fontSize * 1.2);
-      ctx.strokeText(line, centerX, y);
-      ctx.fillText(line, centerX, y);
-    });
+    const escapedTop = escapeForShell(topText.toUpperCase());
+    magickCmd += ` -gravity north -font Liberation-Sans-Bold -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth} -annotate +0+30 "${escapedTop}"`;
   }
   
-  // Draw bottom text
   if (bottomText) {
-    const lines = wrapText(ctx, bottomText.toUpperCase(), maxTextWidth);
-    ctx.textBaseline = 'bottom';
-    lines.reverse().forEach((line, i) => {
-      const y = height - margin - (i * fontSize * 1.2);
-      ctx.strokeText(line, centerX, y);
-      ctx.fillText(line, centerX, y);
-    });
+    const escapedBottom = escapeForShell(bottomText.toUpperCase());
+    magickCmd += ` -gravity south -font Liberation-Sans-Bold -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth} -annotate +0+30 "${escapedBottom}"`;
   }
   
-  // Save as PNG
-  const buffer = canvas.toBuffer('image/png');
-  await fsp.writeFile(outputPath, buffer);
+  magickCmd += ` "${outputPath}"`;
+  
+  console.log('🎨 Creating text overlay with ImageMagick');
+  await execPromise(magickCmd);
+  console.log('✅ Text overlay created');
 }
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
@@ -133,39 +94,34 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
         return;
       }
       
+      console.log(`📝 Adding meme text - Top: "${topText}", Bottom: "${bottomText}"`);
+      
       const { width, height } = await getVideoDimensions(videoPath);
       const overlayPath = path.join(TEMP_DIR, `overlay_${uuidv4()}.png`);
       
-      console.log(`📝 Creating text overlay: ${width}x${height}`);
+      // Create text overlay with ImageMagick
+      await createTextOverlayWithImageMagick(width, height, topText, bottomText, overlayPath);
       
-      // Create text overlay image
-      await createTextOverlay(width, height, topText, bottomText, overlayPath);
+      // Verify overlay was created
+      const stats = await fsp.stat(overlayPath);
+      console.log(`📊 Overlay created: ${stats.size} bytes`);
       
-      console.log(`✅ Overlay created at: ${overlayPath}`);
-      
-      // Verify overlay file exists
-      const overlayStats = await fsp.stat(overlayPath);
-      console.log(`📊 Overlay file size: ${overlayStats.size} bytes`);
-      
-      // Overlay the image on video using FFmpeg - simpler approach
-      const cmd = ffmpeg()
+      // Overlay the PNG onto video using FFmpeg
+      ffmpeg()
         .input(videoPath)
         .input(overlayPath)
+        .complexFilter('[0:v][1:v]overlay=0:0')
         .videoCodec('libx264')
-        .outputOptions([
-          '-filter_complex', '[0:v][1:v]overlay=0:0',
-          '-preset', 'fast',
-          '-crf', '23'
-        ])
+        .outputOptions(['-preset', 'fast', '-crf', '23'])
         .audioCodec('copy')
-        .on('start', (commandLine) => {
-          console.log('🎬 FFmpeg command:', commandLine);
+        .on('start', (cmd) => {
+          console.log('🎬 FFmpeg overlay command:', cmd);
         })
-        .on('stderr', (stderrLine) => {
-          console.log('FFmpeg stderr:', stderrLine);
+        .on('stderr', (line) => {
+          console.log('FFmpeg:', line);
         })
         .on('end', async () => {
-          console.log('✅ Text overlay complete');
+          console.log('✅ Meme text overlay complete');
           // Clean up overlay file
           try {
             await fsp.unlink(overlayPath);
@@ -174,12 +130,12 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
           }
           resolve();
         })
-        .on('error', (err, stdout, stderr) => {
-          console.error('❌ FFmpeg error:', err.message);
-          console.error('FFmpeg stderr:', stderr);
+        .on('error', (err) => {
+          console.error('❌ FFmpeg overlay error:', err.message);
           reject(err);
         })
         .save(outputPath);
+        
     } catch (err) {
       console.error('❌ Error in addMemeText:', err);
       reject(err);
@@ -304,24 +260,30 @@ app.post("/api/combine", async (req, res) => {
     const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
     
     // Download files
+    console.log('📥 Downloading video...');
     await downloadFile(final_stitched_video, videoPath);
     if (final_dialogue) {
+      console.log('📥 Downloading dialogue...');
       await downloadFile(final_dialogue, dialoguePath);
     }
     if (final_music_url) {
+      console.log('📥 Downloading music...');
       await downloadFile(final_music_url, musicPath);
     }
     
     // Step 1: Add meme text if needed (only for response_modality: meme)
     let videoToMix = videoPath;
     if (needsMemeText) {
-      console.log(`🎨 Adding meme text - Top: "${meme_top_text}", Bottom: "${meme_bottom_text}"`);
+      console.log(`🎨 Adding meme text overlay...`);
       await addMemeText(videoPath, videoWithTextPath, meme_top_text, meme_bottom_text);
       videoToMix = videoWithTextPath;
     }
     
     // Step 2: Mix video + audio
+    console.log('🎵 Mixing video and audio...');
     await mixVideo(videoToMix, dialoguePath, musicPath, outputPath);
+    
+    console.log('✅ Processing complete!');
     
     res.json({
       message: needsMemeText 
