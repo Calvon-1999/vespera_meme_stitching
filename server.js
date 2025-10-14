@@ -16,7 +16,6 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
 // --- 🔑 CUSTOM FONT CONFIGURATION ---
-// Absolute path inside the container: /app/public/fonts/Montserrat-Bold.ttf
 const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf");
 // ------------------------------------
 
@@ -70,7 +69,6 @@ async function getVideoDimensions(filepath) {
 
 /**
  * Helper to escape text for FFmpeg's drawtext filter. 
- * This is the most critical part for stability.
  */
 const escapeForDrawtext = (text) => {
     // 1. Escape single quotes first, as they enclose the text value in the filter string
@@ -101,7 +99,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             const strokeWidth = Math.max(1, Math.floor(fontSize / 20)); 
             const verticalOffset = 20; 
 
-            // FFmpeg requires the font path to be escaped for colons (just in case)
             const escapedFontPath = CUSTOM_FONT_PATH.replace(/:/g, '\\:');
 
             // Shared parameters for the drawtext filter
@@ -117,17 +114,23 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `enable='between(t,0,999)'`,
             ].join(':');
 
-            const filters = [];
-            
+            let filterChain = '';
+            let currentStream = '[0:v]'; // Start with the input video stream
+
             // --- Top Text Filter ---
             if (topText) {
                 const escapedTopText = escapeForDrawtext(topText);
                 const topFilter = `drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${verticalOffset}`;
                 
-                // If bottom text also exists, output to [v_temp] for chaining.
-                // If only top text exists, output to the final stream [v_out].
-                const outputLabel = bottomText ? '[v_temp]' : '[v_out]';
-                filters.push(`[0:v]${topFilter}${outputLabel}`);
+                // If there's bottom text, output to a temporary stream [v_temp]
+                if (bottomText) {
+                    filterChain += `${currentStream}${topFilter}[v_temp]`;
+                    currentStream = '[v_temp]'; // Next filter will consume [v_temp]
+                } else {
+                    // If no bottom text, output directly to final stream [v_out]
+                    filterChain += `${currentStream}${topFilter}[v_out]`;
+                    currentStream = '[v_out]'; 
+                }
             }
 
             // --- Bottom Text Filter ---
@@ -135,24 +138,30 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 const escapedBottomText = escapeForDrawtext(bottomText);
                 const bottomFilter = `drawtext=${drawtextParams}:text='${escapedBottomText}':x=(w-text_w)/2:y=h-text_h-${verticalOffset}`;
 
-                // Input label is [v_temp] if top text exists, or the original stream [0:v] otherwise.
-                const inputLabel = topText ? '[v_temp]' : '[0:v]';
+                // Add a semicolon only if this is not the first filter (i.e., topText was present)
+                if (filterChain) {
+                    filterChain += ';'; 
+                }
                 
-                // Output is always the final stream [v_out]
-                filters.push(`${inputLabel}${bottomFilter}[v_out]`);
+                // The input is the current stream (either [0:v] or [v_temp])
+                // The output is the final stream [v_out]
+                filterChain += `${currentStream}${bottomFilter}[v_out]`;
+                currentStream = '[v_out]'; // Mark as final stream
             }
             
-            if (filters.length === 0) {
-                 return reject(new Error("Text input was provided but no filter was generated."));
+            // This case should not be hit due to the initial check, but for completeness:
+            if (currentStream !== '[v_out]') {
+                 return reject(new Error("Internal filter chain error: Final stream not labeled [v_out]."));
             }
             
-            console.log('🎬 FFmpeg filter array:', filters.join(';'));
+            console.log('🎬 FFmpeg final filter string:', filterChain);
 
             // --- Execute FFmpeg with drawtext filter ---
             ffmpeg()
                 .input(videoPath)
-                // Use the filter array for robust chaining
-                .complexFilter(filters) 
+                // Pass the single, full filter chain string
+                // Explicitly specify the final stream label is 'v_out'
+                .complexFilter(filterChain, 'v_out') 
                 .videoCodec('libx264') 
                 .outputOptions(['-preset', 'fast', '-crf', '23'])
                 .audioCodec('copy')
@@ -178,6 +187,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
         }
     });
 }
+
+// ... (rest of server.js remains unchanged)
 
 async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
     return new Promise(async (resolve, reject) => {
