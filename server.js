@@ -15,9 +15,10 @@ const ffprobePath = require("@ffprobe-installer/ffprobe").path;
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
-// --- CUSTOM FONT CONFIGURATION ---
-const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-VariableFont_wght.ttf");
-// ----------------------------------
+// --- 🔑 CUSTOM FONT CONFIGURATION (UPDATED) ---
+// ✅ Change 1: Pointing to the static BOLD font file for reliability
+const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf");
+// ----------------------------------------------
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -74,7 +75,7 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     // Size is set smaller (dividing by 14) to prevent cropping.
     const fontSize = Math.floor(height / 14); 
 
-    // ✅ ADJUSTED: Using 10 for a cleaner, visible black outline.
+    // Stroke width is set using divisor 10 for a standard, clean outline.
     const strokeWidth = Math.max(2, Math.floor(fontSize / 10)); 
 
     // Helper to safely escape text for the shell command
@@ -92,12 +93,11 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     // Build the ImageMagick command
     let magickCmd = `convert -size ${width}x${height} xc:none`;
 
-    // Set the font using the absolute path
+    // Set the font using the absolute path (Montserrat-Bold.ttf)
     magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
     
-    // ✅ FIXED: Set the weight to 900 for the maximum possible thickness (Extra Bold/Black)
-    const fontWeight = 900; 
-    magickCmd += ` -weight ${fontWeight}`;
+    // ❌ REMOVED: The -weight command is no longer needed since the file is statically bold.
+    // The font is now explicitly Bold, and the color is White with a Black Outline.
 
     // Common text styling options: White fill, black outline
     const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth}`;
@@ -116,10 +116,12 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
 
     magickCmd += ` "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Montserrat (Max Weight 900, White/Black Outline)');
+    console.log('🎨 Creating text overlay with Montserrat-Bold (White/Black Outline)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
+
+// ... (rest of the functions remain the same)
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
@@ -148,7 +150,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 .input(videoPath)
                 .input(overlayPath)
                 .complexFilter('[0:v][1:v]overlay=0:0')
-                // FIXED: Using 'libx264'
+                // ✅ FIXED: Using 'libx264'
                 .videoCodec('libx264') 
                 .outputOptions(['-preset', 'fast', '-crf', '23'])
                 .audioCodec('copy')
