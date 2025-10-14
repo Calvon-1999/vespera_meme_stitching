@@ -16,7 +16,6 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
 // --- CUSTOM FONT CONFIGURATION ---
-// 🌟 NEW FONT PATH: Montserrat-VariableFont_wght.ttf
 const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-VariableFont_wght.ttf");
 // ----------------------------------
 
@@ -77,11 +76,11 @@ async function getVideoDimensions(filepath) {
  * @param {string} outputPath - Path to save the resulting PNG
  */
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
-    // Slightly increase font size for a "fatter" look
-    const fontSize = Math.floor(height / 10); 
+    // 🌟 CHANGE 1: Use a larger divisor (13) to make the text smaller and prevent cropping.
+    const fontSize = Math.floor(height / 13); 
 
-    // Recalculate stroke width based on new, larger font size.
-    const strokeWidth = Math.max(2, Math.floor(fontSize / 20)); 
+    // Recalculate stroke width based on new, smaller font size.
+    const strokeWidth = Math.max(2, Math.floor(fontSize / 15)); // Adjusted back to 15 for a noticeable outline
 
     // Helper to safely escape text for the shell command
     const escapeForShell = (text) => {
@@ -92,7 +91,7 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
             .replace(/\$/g, '\\$');
     };
 
-    // Tighten spacing slightly - keep this as it contributes to meme style
+    // Tighten spacing slightly
     const letterSpacing = -1;
 
     // Build the ImageMagick command
@@ -101,9 +100,7 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     // Set the font using the absolute path
     magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
     
-    // 🌟 Variable Font Adjustment: Specify a very heavy weight to ensure it's "fat".
-    // This is often supported by modern ImageMagick/Pango setups.
-    // We'll target the maximum weight (900 or 999).
+    // 🌟 CHANGE 2: Set the maximum weight (999) to ensure the text is as bold as possible.
     const fontWeight = 999; 
     magickCmd += ` -weight ${fontWeight}`;
 
@@ -124,10 +121,12 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
 
     magickCmd += ` "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Montserrat (Heavy weight, white fill, black outline)');
+    console.log('🎨 Creating text overlay with Montserrat (Extra Bold, smaller size)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
+
+// ... (rest of the server.js code remains the same)
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
@@ -156,7 +155,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 .input(videoPath)
                 .input(overlayPath)
                 .complexFilter('[0:v][1:v]overlay=0:0')
-                .videoCodec('libx264')
+                .videoCodec('libx64')
                 .outputOptions(['-preset', 'fast', '-crf', '23'])
                 .audioCodec('copy')
                 .on('start', (cmd) => {
