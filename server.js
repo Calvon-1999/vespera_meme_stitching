@@ -75,7 +75,7 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     const fontSize = Math.floor(height / 14); 
 
     // Stroke width is set to be noticeable but not cover the fill.
-    const strokeWidth = Math.max(2, Math.floor(fontSize / 12)); 
+    const strokeWidth = Math.max(2, Math.floor(fontSize / 3)); 
 
     // Helper to safely escape text for the shell command
     const escapeForShell = (text) => {
@@ -96,7 +96,7 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
     
     // 🌟 CHANGE: Set the weight to 700 for standard BOLD
-    const fontWeight = 700; 
+    const fontWeight = 800; 
     magickCmd += ` -weight ${fontWeight}`;
 
     // Common text styling options: White fill, black outline
