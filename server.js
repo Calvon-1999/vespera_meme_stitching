@@ -16,7 +16,7 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
 // --- 🔑 CUSTOM FONT CONFIGURATION ---
-// Using the static bold file for stability.
+// IMPORTANT: FFmpeg needs the ABSOLUTE path. Since the app is in /app, this is correct.
 const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf");
 // ------------------------------------
 
@@ -68,19 +68,27 @@ async function getVideoDimensions(filepath) {
     });
 }
 
-// ❌ ImageMagick function is REMOVED
-
 /**
- * Helper to escape text for FFmpeg's drawtext filter (escapes backslashes, colons, and single quotes).
+ * Helper to escape text for FFmpeg's drawtext filter.
  */
 const escapeForDrawtext = (text) => {
     return text
-        // Escape backslashes for the filter string and the shell
+        // 1. Escape backslashes first, they are escape characters
         .replace(/\\/g, '\\\\\\\\') 
-        // Escape colons, which are used as parameter separators
+        // 2. Escape colons, which are parameter separators
         .replace(/:/g, '\\:') 
-        // Escape single quotes, which enclose the text value
+        // 3. Escape single quotes, which are used to enclose the text value in the filter string
         .replace(/'/g, '\\\'');
+};
+
+/**
+ * Helper to escape the font path for the FFmpeg filter string.
+ * This ensures colons in the path (which don't exist here, but is good practice) 
+ * are correctly handled. The path is then wrapped in single quotes in the filter.
+ */
+const escapeFontPath = (p) => {
+    // Only escape colons, as single quotes will wrap the whole path value.
+    return p.replace(/:/g, '\\:');
 };
 
 
@@ -88,7 +96,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
     return new Promise(async (resolve, reject) => {
         try {
             if (!topText && !bottomText) {
-                // No text, just copy the video
                 await fsp.copyFile(videoPath, outputPath);
                 resolve();
                 return;
@@ -98,67 +105,72 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             const { height } = await getVideoDimensions(videoPath);
             
-            // Text Calculation Constants (based on previous requests)
+            // Text Calculation Constants
             const fontSize = Math.floor(height / 14);
-            const strokeWidth = Math.max(1, Math.floor(fontSize / 20)); // Thin black stroke
-            const verticalOffset = 20; // Tight vertical positioning
+            const strokeWidth = Math.max(1, Math.floor(fontSize / 20)); 
+            const verticalOffset = 20; 
+            
+            const escapedFontPath = escapeFontPath(CUSTOM_FONT_PATH);
 
             // Shared parameters for the drawtext filter
             const drawtextParams = [
-                `fontfile='${CUSTOM_FONT_PATH}'`,
+                // 🔑 CRITICAL FIX: The font path must be quoted and escaped from colons.
+                `fontfile='${escapedFontPath}'`,
                 `fontcolor=white`,
                 `fontsize=${fontSize}`,
                 `bordercolor=black`,
                 `borderw=${strokeWidth}`,
-                // Add a slight shadow for extra pop and visibility
                 `shadowcolor=black@0.5`,
                 `shadowx=1`,
                 `shadowy=1`,
-                `enable='between(t,0,999)'`, // Apply for the whole video duration
+                `enable='between(t,0,999)'`,
             ].join(':');
 
             let filterChain = '';
-            
-            const topFilter = topText ? 
-                `drawtext=${drawtextParams}:text='${escapeForDrawtext(topText)}':x=(w-text_w)/2:y=${verticalOffset}` : null;
-            
-            const bottomFilter = bottomText ? 
-                `drawtext=${drawtextParams}:text='${escapeForDrawtext(bottomText)}':x=(w-text_w)/2:y=h-text_h-${verticalOffset}` : null;
+            let videoStream = '[0:v]'; 
 
-            // --- Construct the FFmpeg Filter Chain ---
-            if (topFilter && bottomFilter) {
-                // Both texts: Chain them sequentially: [0:v] -> [v_temp] -> [v_out]
-                filterChain = `[0:v]${topFilter}[v_temp];[v_temp]${bottomFilter}[v_out]`;
-            } else if (topFilter) {
-                // Only top: [0:v] -> [v_out]
-                filterChain = `[0:v]${topFilter}[v_out]`;
-            } else if (bottomFilter) {
-                // Only bottom: [0:v] -> [v_out]
-                filterChain = `[0:v]${bottomFilter}[v_out]`;
-            } else {
-                 // Already handled by the initial check, but here for completeness
-                return;
+            // --- Top Text Filter ---
+            if (topText) {
+                const topFilter = `drawtext=${drawtextParams}:text='${escapeForDrawtext(topText)}':x=(w-text_w)/2:y=${verticalOffset}`;
+                filterChain += `${videoStream}${topFilter}[v_temp]`;
+                videoStream = '[v_temp]';
+            }
+
+            // --- Bottom Text Filter ---
+            if (bottomText) {
+                const bottomFilter = `drawtext=${drawtextParams}:text='${escapeForDrawtext(bottomText)}':x=(w-text_w)/2:y=h-text_h-${verticalOffset}`;
+                
+                // Chain the filters
+                filterChain += `${videoStream}${bottomFilter}[v_out]`;
+                videoStream = '[v_out]';
             }
             
+            // Final stream labeling correction
+            if (videoStream === '[v_temp]') {
+                 // If only top text was applied, rename the [v_temp] stream to [v_out]
+                 filterChain += `[v_temp]null[v_out]`; 
+            } else if (videoStream === '[0:v]') {
+                // Should not happen if the initial check passed, but prevents error
+                return reject(new Error("No text filter was generated."));
+            }
+
             console.log('🎬 FFmpeg filter chain:', filterChain);
 
             // --- Execute FFmpeg with drawtext filter ---
             ffmpeg()
                 .input(videoPath)
-                // Use complexFilter to apply the drawtext chain
                 .complexFilter(filterChain, 'v_out') 
                 .videoCodec('libx264') 
                 .outputOptions(['-preset', 'fast', '-crf', '23'])
                 .audioCodec('copy')
                 .on('start', (cmd) => {
-                    console.log('🎬 FFmpeg drawtext command:', cmd);
+                    console.log('🎬 FFmpeg command:', cmd);
                 })
                 .on('stderr', (line) => {
-                    console.log('FFmpeg:', line);
+                    console.log('FFmpeg output:', line);
                 })
                 .on('end', () => {
                     console.log('✅ Meme text overlay complete');
-                    // ❌ No need to delete an overlay file anymore!
                     resolve();
                 })
                 .on('error', (err) => {
@@ -299,7 +311,6 @@ app.post("/api/combine", async (req, res) => {
         let videoToMix = videoPath;
         if (needsMemeText) {
             console.log(`🎨 Adding meme text overlay...`);
-            // addMemeText now saves directly to videoWithTextPath
             await addMemeText(videoPath, videoWithTextPath, meme_top_text, meme_bottom_text);
             videoToMix = videoWithTextPath;
         }
