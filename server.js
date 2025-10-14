@@ -77,10 +77,13 @@ async function getVideoDimensions(filepath) {
  * @param {string} outputPath - Path to save the resulting PNG
  */
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
-    const fontSize = Math.floor(height / 12);
-    // 🌟 FIX: Reduce stroke width to prevent black from covering white.
-    // Use a fixed smaller ratio (e.g., divide by 15 instead of 5)
-    const strokeWidth = Math.max(2, Math.floor(fontSize / 15)); 
+    // 🌟 CHANGE 1: Slightly increase font size for a "fatter" look
+    // Dividing by a smaller number makes the text larger overall.
+    const fontSize = Math.floor(height / 10); // Was height / 12
+
+    // 🌟 CHANGE 2: Recalculate stroke width based on new, larger font size.
+    // Adjusted ratio to maintain visibility of white fill while having a noticeable outline.
+    const strokeWidth = Math.max(2, Math.floor(fontSize / 20)); // Was fontSize / 15
 
     // Helper to safely escape text for the shell command
     const escapeForShell = (text) => {
@@ -91,7 +94,7 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
             .replace(/\$/g, '\\$');
     };
 
-    // Tighten spacing slightly
+    // Tighten spacing slightly - keep this as it contributes to meme style
     const letterSpacing = -1;
 
     // Build the ImageMagick command
@@ -101,7 +104,6 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
 
     // Common text styling options including fill, stroke, and strokewidth
-    // The fill is WHITE, the stroke is BLACK, and the strokeWidth is smaller.
     const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth}`;
 
     if (topText) {
@@ -118,7 +120,7 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
 
     magickCmd += ` "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Anton font (white fill, black outline)');
+    console.log('🎨 Creating text overlay with Anton font (fatter, white fill, black outline)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
