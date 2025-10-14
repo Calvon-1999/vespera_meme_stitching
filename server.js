@@ -67,20 +67,18 @@ async function getVideoDimensions(filepath) {
     });
 }
 
+// -----------------------------------
+// CORE IMAGE MAGICK FUNCTION (UPDATED)
+// -----------------------------------
 /**
  * Creates a text overlay image using ImageMagick with the custom font.
- * * @param {number} width - Video width
- * @param {number} height - Video height
- * @param {string} topText - Text for the top overlay
- * @param {string} bottomText - Text for the bottom overlay
- * @param {string} outputPath - Path to save the resulting PNG
  */
 async function createTextOverlayWithImageMagick(width, height, topText = "", bottomText = "", outputPath) {
-    // 🌟 CHANGE 1: Use a larger divisor (13) to make the text smaller and prevent cropping.
-    const fontSize = Math.floor(height / 13); 
+    // 🌟 CHANGE 1: Use a larger divisor (14) to make the text smaller and prevent cropping.
+    const fontSize = Math.floor(height / 14); 
 
-    // Recalculate stroke width based on new, smaller font size.
-    const strokeWidth = Math.max(2, Math.floor(fontSize / 15)); // Adjusted back to 15 for a noticeable outline
+    // 🌟 CHANGE 2: Recalculate stroke width based on new, smaller font size to maintain visibility.
+    const strokeWidth = Math.max(2, Math.floor(fontSize / 12)); 
 
     // Helper to safely escape text for the shell command
     const escapeForShell = (text) => {
@@ -100,11 +98,11 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
     // Set the font using the absolute path
     magickCmd += ` -font "${CUSTOM_FONT_PATH}"`;
     
-    // 🌟 CHANGE 2: Set the maximum weight (999) to ensure the text is as bold as possible.
+    // 🌟 CHANGE 3: Set the maximum weight (999) for Extra Bold text.
     const fontWeight = 999; 
     magickCmd += ` -weight ${fontWeight}`;
 
-    // Common text styling options including fill, stroke, and strokewidth
+    // Common text styling options: -fill white -stroke black -strokewidth ${strokeWidth}
     const textOptions = `-kerning ${letterSpacing} -pointsize ${fontSize} -fill white -stroke black -strokewidth ${strokeWidth}`;
 
     if (topText) {
@@ -121,12 +119,13 @@ async function createTextOverlayWithImageMagick(width, height, topText = "", bot
 
     magickCmd += ` "${outputPath}"`;
 
-    console.log('🎨 Creating text overlay with Montserrat (Extra Bold, smaller size)');
+    console.log('🎨 Creating text overlay with Montserrat (Extra Bold, White/Black Outline)');
     await execPromise(magickCmd);
     console.log('✅ Text overlay created');
 }
-
-// ... (rest of the server.js code remains the same)
+// -----------------------------------
+// END CORE IMAGE MAGICK FUNCTION
+// -----------------------------------
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
@@ -155,8 +154,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 .input(videoPath)
                 .input(overlayPath)
                 .complexFilter('[0:v][1:v]overlay=0:0')
-                // ✅ CORRECTED: Use 'libx264' (lowercase 'x')
-                .videoCodec('libx264')
+                // ✅ FIXED: Using 'libx264' (lowercase 'x')
+                .videoCodec('libx264') 
                 .outputOptions(['-preset', 'fast', '-crf', '23'])
                 .audioCodec('copy')
                 .on('start', (cmd) => {
