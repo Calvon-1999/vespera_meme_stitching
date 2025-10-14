@@ -5,9 +5,6 @@ const fs = require("fs");
 const fsp = require("fs").promises;
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
-const { exec } = require("child_process");
-const util = require("util");
-const execPromise = util.promisify(exec);
 
 // FFmpeg Setup
 const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path;
@@ -15,7 +12,7 @@ const ffprobePath = require("@ffprobe-installer/ffprobe").path;
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
-// --- 🔑 CUSTOM FONT CONFIGURATION (Using Montserrat-Bold.ttf as requested) ---
+// --- 🔑 CUSTOM FONT CONFIGURATION (Using Montserrat-Bold.ttf) ---
 const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf");
 // -----------------------------------------------------------------------------
 
@@ -68,53 +65,20 @@ async function getVideoDimensions(filepath) {
 }
 
 /**
- * 🔑 FIXED: Robustly handles all escapes, especially the newline (\n) character,
- * which is the source of the 'Invalid argument' error when wrapping text.
+ * 🔑 SIMPLER ESCAPE: Only escapes special characters, assuming text is single-line.
+ * This function is sufficient if text wrapping is NOT used.
+ * NOTE: If the user provides text with actual \n characters, this will likely fail.
  */
 const escapeForDrawtext = (text) => {
-    const NEWLINE_FLAG = 'FFMPEG_NEWLINE_PLACEHOLDER_42';
-    
-    // 1. Protect programmatic newlines used by wrapText
-    text = text.replace(/\n/g, NEWLINE_FLAG); 
-
-    // 2. Escape characters that break the FFmpeg filter syntax
+    // Escape characters that break the FFmpeg filter syntax
     text = text.replace(/\\/g, '\\\\\\\\'); 
     text = text.replace(/'/g, '\\\'');      
     text = text.replace(/:/g, '\\:');       
-
-    // 3. Convert protected newlines into FFmpeg's required C-style escape '\\n'
-    text = text.replace(new RegExp(NEWLINE_FLAG, 'g'), '\\\\n');
-
+    // Remove the newline escaping logic that was causing the most complex bugs.
     return text;
 };
 
-
-/**
- * 🔑 NEW: Wraps text by inserting newlines (\n) to prevent excessive width.
- * This is the first step to prevent text cropping.
- * @param {string} text - The input text.
- * @param {number} maxCharsPerLine - Maximum characters before inserting a newline.
- * @returns {string} - The wrapped text.
- */
-const wrapText = (text, maxCharsPerLine = 30) => {
-    const words = text.split(' ');
-    let wrappedText = '';
-    let currentLineLength = 0;
-
-    for (const word of words) {
-        if (currentLineLength + word.length + 1 > maxCharsPerLine) {
-            // Start new line
-            wrappedText += '\n' + word + ' ';
-            currentLineLength = word.length + 1;
-        } else {
-            // Continue current line
-            wrappedText += word + ' ';
-            currentLineLength += word.length + 1;
-        }
-    }
-    return wrappedText.trim();
-};
-
+// ❌ REMOVED: The problematic wrapText function is removed.
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
@@ -129,22 +93,10 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             const { height } = await getVideoDimensions(videoPath);
             
-            // 🔑 NEW: Apply wrapping BEFORE calculation and escaping
-            const wrappedTopText = wrapText(topText);
-            const wrappedBottomText = wrapText(bottomText);
-
-            // Determine the total number of lines to guide font sizing
-            const topLines = wrappedTopText.split('\n').length || 0; 
-            const bottomLines = wrappedBottomText.split('\n').length || 0; 
-            const maxLines = Math.max(topLines, bottomLines, 1);
-            
-            // 🔑 NEW: Dynamically adjust the divisor based on lines
-            const baseDivisor = 13; 
-            const verticalCompressionFactor = 2; // How much to increase the divisor per extra line
-            const dynamicDivisor = baseDivisor + ((maxLines - 1) * verticalCompressionFactor); 
+            // NOTE: Since wrapText is removed, topText and bottomText are passed directly.
             
             // Text Calculation Constants
-            const fontSize = Math.floor(height / dynamicDivisor); 
+            const fontSize = Math.floor(height / 13); // Simple fixed sizing
             const strokeWidth = Math.max(1, Math.floor(fontSize / 10)); 
             const verticalOffset = 20; 
 
@@ -164,21 +116,19 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             ].join(':');
 
             let filterChain = '';
-            let currentStream = '[0:v]'; // Start with the input video stream
+            let currentStream = '[0:v]'; 
 
             // --- Top Text Filter ---
             if (topText) {
-                // Escape the WRAPPED text using the robust fixed function
-                const escapedTopText = escapeForDrawtext(wrappedTopText);
+                // Use the simpler escape function
+                const escapedTopText = escapeForDrawtext(topText);
                 // x=(w-text_w)/2 centers the entire text block horizontally
                 const topFilter = `drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${verticalOffset}`;
                 
-                // If there's bottom text, output to a temporary stream [v_temp]
                 if (bottomText) {
                     filterChain += `${currentStream}${topFilter}[v_temp]`;
-                    currentStream = '[v_temp]'; // Next filter will consume [v_temp]
+                    currentStream = '[v_temp]'; 
                 } else {
-                    // If no bottom text, output directly to final stream [v_out]
                     filterChain += `${currentStream}${topFilter}[v_out]`;
                     currentStream = '[v_out]'; 
                 }
@@ -186,19 +136,16 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             // --- Bottom Text Filter ---
             if (bottomText) {
-                // Escape the WRAPPED text using the robust fixed function
-                const escapedBottomText = escapeForDrawtext(wrappedBottomText);
+                // Use the simpler escape function
+                const escapedBottomText = escapeForDrawtext(bottomText);
                 const bottomFilter = `drawtext=${drawtextParams}:text='${escapedBottomText}':x=(w-text_w)/2:y=h-text_h-${verticalOffset}`;
 
-                // Add a semicolon only if this is not the first filter (i.e., topText was present)
                 if (filterChain) {
                     filterChain += ';'; 
                 }
                 
-                // The input is the current stream (either [0:v] or [v_temp])
-                // The output is the final stream [v_out]
                 filterChain += `${currentStream}${bottomFilter}[v_out]`;
-                currentStream = '[v_out]'; // Mark as final stream
+                currentStream = '[v_out]'; 
             }
             
             if (currentStream !== '[v_out]') {
@@ -210,8 +157,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             // --- Execute FFmpeg with drawtext filter ---
             ffmpeg()
                 .input(videoPath)
-                // Pass the single, full filter chain string
-                // Explicitly specify the final stream label is 'v_out'
                 .complexFilter(filterChain, 'v_out') 
                 .videoCodec('libx264') 
                 .outputOptions(['-preset', 'fast', '-crf', '23'])
