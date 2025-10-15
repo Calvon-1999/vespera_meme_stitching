@@ -120,19 +120,11 @@ function escapeForDrawtext(text) {
     return text;
 }
 
-/**
- * Adds meme text overlay to video
- */
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
     return new Promise(async (resolve, reject) => {
         try {
             console.log('🎨 addMemeText function called');
-            console.log('   Video path:', videoPath);
-            console.log('   Output path:', outputPath);
-            console.log('   Top text:', topText);
-            console.log('   Bottom text:', bottomText);
-
-            // If no text, just copy the file
+            
             if (!topText && !bottomText) {
                 console.log('⚠️  No text provided - copying video file');
                 await fsp.copyFile(videoPath, outputPath);
@@ -140,21 +132,15 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 return;
             }
 
-            // Get video dimensions
             const { width, height } = await getVideoDimensions(videoPath);
             console.log(`📐 Video dimensions: ${width}x${height}`);
 
-            // Wrap text for multi-line display
             const wrappedTopText = wrapText(topText, 30);
             const wrappedBottomText = wrapText(bottomText, 30);
             
-            console.log('📝 Wrapped top text:', wrappedTopText);
-            console.log('📝 Wrapped bottom text:', wrappedBottomText);
-
-            // Calculate font size based on number of lines
-            const topLines = wrappedTopText.split('\n').length;
-            const bottomLines = wrappedBottomText.split('\n').length;
-            const maxLines = Math.max(topLines, bottomLines, 1);
+            const topLines = wrappedTopText.split('\n');
+            const bottomLines = wrappedBottomText.split('\n');
+            const maxLines = Math.max(topLines.length, bottomLines.length, 1);
             
             const baseDivisor = 12;
             const verticalCompressionFactor = 2;
@@ -162,19 +148,17 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             
             const fontSize = Math.floor(height / dynamicDivisor);
             const strokeWidth = Math.max(2, Math.floor(fontSize / 10));
+            const lineHeight = fontSize + 5; // Add spacing between lines
             const verticalOffset = 20;
 
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}`);
 
-            // Escape font path for FFmpeg
             const escapedFontPath = CUSTOM_FONT_PATH.replace(/:/g, '\\:');
 
-            // Check if font exists
             if (!fs.existsSync(CUSTOM_FONT_PATH)) {
                 console.warn(`⚠️  Warning: Font file not found at ${CUSTOM_FONT_PATH}`);
             }
 
-            // Shared drawtext parameters
             const drawtextParams = [
                 `fontfile='${escapedFontPath}'`,
                 `fontcolor=white`,
@@ -184,42 +168,49 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `shadowcolor=black@0.5`,
                 `shadowx=2`,
                 `shadowy=2`
-                // Removed text_align=C temporarily for debugging
             ].join(':');
 
-            // Build filter chain
+            // Build filter chain with separate drawtext for each line
             let filterChain = '';
             let currentStream = '[0:v]';
+            let streamCounter = 0;
 
-            // Top text filter
+            // Top text - one drawtext per line
             if (topText) {
-                const escapedTopText = escapeForDrawtext(wrappedTopText);
-                console.log('🔐 Escaped top text (raw):', JSON.stringify(escapedTopText));
-                console.log('🔐 Escaped top text (display):', escapedTopText);
-                
-                const topFilter = `drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${verticalOffset}`;
-                
-                if (bottomText) {
-                    filterChain += `${currentStream}${topFilter}[v_temp];`;
-                    currentStream = '[v_temp]';
-                } else {
-                    filterChain += `${currentStream}${topFilter}[v_out]`;
-                }
+                topLines.forEach((line, index) => {
+                    const escapedLine = escapeTextSimple(line);
+                    const yPos = verticalOffset + (index * lineHeight);
+                    const outputLabel = (index === topLines.length - 1 && !bottomText) 
+                        ? '[v_out]' 
+                        : `[v${streamCounter}]`;
+                    
+                    filterChain += `${currentStream}drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}${outputLabel};`;
+                    currentStream = `[v${streamCounter}]`;
+                    streamCounter++;
+                });
             }
 
-            // Bottom text filter
+            // Bottom text - one drawtext per line
             if (bottomText) {
-                const escapedBottomText = escapeForDrawtext(wrappedBottomText);
-                console.log('🔐 Escaped bottom text:', escapedBottomText);
-                
-                const bottomFilter = `drawtext=${drawtextParams}:text='${escapedBottomText}':x=(w-text_w)/2:y=h-text_h-${verticalOffset}`;
-                
-                filterChain += `${currentStream}${bottomFilter}[v_out]`;
+                const totalBottomHeight = bottomLines.length * lineHeight;
+                bottomLines.forEach((line, index) => {
+                    const escapedLine = escapeTextSimple(line);
+                    const yPos = `h-${totalBottomHeight - (index * lineHeight)}-${verticalOffset}`;
+                    const outputLabel = (index === bottomLines.length - 1) 
+                        ? '[v_out]' 
+                        : `[v${streamCounter}]`;
+                    
+                    filterChain += `${currentStream}drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}${outputLabel};`;
+                    currentStream = `[v${streamCounter}]`;
+                    streamCounter++;
+                });
             }
+
+            // Remove trailing semicolon
+            filterChain = filterChain.replace(/;$/, '');
 
             console.log('🎬 FFmpeg filter chain:', filterChain);
 
-            // Execute FFmpeg
             ffmpeg()
                 .input(videoPath)
                 .complexFilter(filterChain, 'v_out')
@@ -229,18 +220,13 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 .on('start', (cmd) => {
                     console.log('🎬 FFmpeg command:', cmd);
                 })
-                .on('stderr', (line) => {
-                    if (line.includes('error') || line.includes('Error')) {
-                        console.error('FFmpeg stderr:', line);
-                    }
+                .on('error', (err) => {
+                    console.error('❌ FFmpeg error:', err.message);
+                    reject(err);
                 })
                 .on('end', () => {
                     console.log('✅ Meme text overlay complete');
                     resolve();
-                })
-                .on('error', (err) => {
-                    console.error('❌ FFmpeg error:', err.message);
-                    reject(err);
                 })
                 .save(outputPath);
 
@@ -251,9 +237,14 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
     });
 }
 
-/**
- * Mixes video with dialogue and/or music
- */
+// Simplified escape function (no newline handling needed)
+function escapeTextSimple(text) {
+    if (!text) return '';
+    text = text.replace(/\\/g, '\\\\');
+    text = text.replace(/'/g, "'\\\\''");
+    text = text.replace(/:/g, '\\:');
+    return text;
+}
 async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
     return new Promise(async (resolve, reject) => {
         try {
