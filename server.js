@@ -187,7 +187,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                     
                     currentLine++;
                     const isLastLine = currentLine === totalLines;
-                    const nextStream = isLastLine ? '[v_out]' : `[v${streamCounter}]`;
+                    const nextStream = isLastLine ? '[outv]' : `[v${streamCounter}]`;
                     
                     filterChain += `${currentStream}drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}${nextStream}`;
                     
@@ -209,7 +209,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                     
                     currentLine++;
                     const isLastLine = currentLine === totalLines;
-                    const nextStream = isLastLine ? '[v_out]' : `[v${streamCounter}]`;
+                    const nextStream = isLastLine ? '[outv]' : `[v${streamCounter}]`;
                     
                     // Add semicolon before this filter if there was a previous filter
                     if (filterChain.length > 0 && !filterChain.endsWith(';')) {
@@ -231,10 +231,15 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
 
             ffmpeg()
                 .input(videoPath)
-                .complexFilter(filterChain, 'v_out')
-                .videoCodec('libx264')
-                .outputOptions(['-preset', 'fast', '-crf', '23'])
-                .audioCodec('copy')
+                .complexFilter(filterChain)
+                .outputOptions([
+                    '-map', '[outv]',
+                    '-map', '0:a?',  // Map audio if it exists
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '23',
+                    '-c:a', 'copy'
+                ])
                 .on('start', (cmd) => {
                     console.log('🎬 FFmpeg command:', cmd);
                 })
@@ -260,7 +265,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
         }
     });
 }
-
 // Simplified escape function (no newline handling needed)
 function escapeTextSimple(text) {
     if (!text) return '';
