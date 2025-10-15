@@ -245,15 +245,19 @@ function escapeTextSimple(text) {
     text = text.replace(/:/g, '\\:');
     return text;
 }
+/**
+ * Mixes video with dialogue and/or music
+ * If music is provided, it replaces the original video audio
+ */
 async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
     return new Promise(async (resolve, reject) => {
         try {
             console.log('🎵 Starting audio mix...');
             const cmd = ffmpeg(videoPath);
 
-            // Both dialogue and music
+            // Both dialogue and music - replace video audio with new audio
             if (dialoguePath && musicPath) {
-                console.log('🎙️  Mixing dialogue + music');
+                console.log('🎙️  Mixing dialogue + music (replacing original audio)');
                 const musicDuration = await getAudioDuration(musicPath);
                 const fadeInDuration = 2.5;
                 const fadeOutDuration = 2.5;
@@ -270,27 +274,27 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
 
                 cmd.complexFilter(complexFilter)
                     .outputOptions([
-                        "-map 0:v",
-                        "-map [aout]",
+                        "-map 0:v",      // Map video from input 0
+                        "-map [aout]",   // Map mixed audio (ignoring original video audio)
                         "-c:v copy",
                         "-c:a aac",
                         "-shortest"
                     ]);
             }
-            // Dialogue only
+            // Dialogue only - replace video audio with dialogue
             else if (dialoguePath && !musicPath) {
-                console.log('🎙️  Mixing dialogue only');
+                console.log('🎙️  Adding dialogue only (replacing original audio)');
                 cmd.input(dialoguePath);
                 cmd.outputOptions([
-                    "-map 0:v",
-                    "-map 1:a",
+                    "-map 0:v",      // Map video from input 0
+                    "-map 1:a",      // Map audio from input 1 (dialogue) - ignoring original
                     "-c:v copy",
                     "-c:a aac"
                 ]);
             }
-            // Music only
+            // Music only - replace video audio with music
             else if (!dialoguePath && musicPath) {
-                console.log('🎵 Mixing music only');
+                console.log('🎵 Replacing original audio with music');
                 const musicDuration = await getAudioDuration(musicPath);
                 const fadeInDuration = 2.5;
                 const fadeOutDuration = 2.5;
@@ -304,16 +308,16 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
 
                 cmd.complexFilter(complexFilter)
                     .outputOptions([
-                        "-map 0:v",
-                        "-map [aout]",
+                        "-map 0:v",      // Map video from input 0
+                        "-map [aout]",   // Map processed music (ignoring original video audio)
                         "-c:v copy",
                         "-c:a aac",
                         "-shortest"
                     ]);
             }
-            // No audio (shouldn't reach here, but handle it)
+            // No new audio - keep original video audio
             else {
-                console.log('📦 No audio - copying video');
+                console.log('📦 No new audio - keeping original video audio');
                 cmd.outputOptions([
                     "-c:v copy",
                     "-c:a copy"
@@ -325,11 +329,11 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
                     console.log('🎬 Audio mix command:', cmd);
                 })
                 .on("end", () => {
-                    console.log('✅ Audio mix complete');
+                    console.log('✅ Audio processing complete');
                     resolve();
                 })
                 .on("error", (err) => {
-                    console.error('❌ Audio mix error:', err);
+                    console.error('❌ Audio processing error:', err);
                     reject(err);
                 });
         } catch (err) {
