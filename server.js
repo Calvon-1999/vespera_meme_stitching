@@ -170,76 +170,40 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 `shadowy=2`
             ].join(':');
 
-            // Build filter chain with separate drawtext for each line
-            let filterChain = '';
-            let currentStream = '[0:v]';
-            let streamCounter = 0;
+            // Build a single filter string without intermediate labels
+            let filters = [];
 
-            // Calculate total number of lines to determine the last one
-            const totalLines = topLines.length + bottomLines.length;
-            let currentLine = 0;
-
-            // Top text - one drawtext per line
+            // Top text - collect all drawtext filters
             if (topText && topLines.length > 0) {
                 topLines.forEach((line, index) => {
                     const escapedLine = escapeTextSimple(line);
                     const yPos = verticalOffset + (index * lineHeight);
-                    
-                    currentLine++;
-                    const isLastLine = currentLine === totalLines;
-                    const nextStream = isLastLine ? '[outv]' : `[v${streamCounter}]`;
-                    
-                    filterChain += `${currentStream}drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}${nextStream}`;
-                    
-                    if (!isLastLine) {
-                        filterChain += ';';
-                        currentStream = `[v${streamCounter}]`;
-                        streamCounter++;
-                    }
+                    filters.push(`drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}`);
                 });
             }
 
-            // Bottom text - one drawtext per line
+            // Bottom text - collect all drawtext filters
             if (bottomText && bottomLines.length > 0) {
                 const totalBottomHeight = bottomLines.length * lineHeight;
-                
                 bottomLines.forEach((line, index) => {
                     const escapedLine = escapeTextSimple(line);
                     const yPos = `h-${totalBottomHeight - (index * lineHeight)}-${verticalOffset}`;
-                    
-                    currentLine++;
-                    const isLastLine = currentLine === totalLines;
-                    const nextStream = isLastLine ? '[outv]' : `[v${streamCounter}]`;
-                    
-                    // Add semicolon before this filter if there was a previous filter
-                    if (filterChain.length > 0 && !filterChain.endsWith(';')) {
-                        filterChain += ';';
-                    }
-                    
-                    filterChain += `${currentStream}drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}${nextStream}`;
-                    
-                    if (!isLastLine) {
-                        filterChain += ';';
-                        currentStream = `[v${streamCounter}]`;
-                        streamCounter++;
-                    }
+                    filters.push(`drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}`);
                 });
             }
 
-            console.log('🎬 FFmpeg filter chain:', filterChain);
-            console.log(`📊 Total lines: ${totalLines}, Top: ${topLines.length}, Bottom: ${bottomLines.length}`);
+            // Join all filters with commas (chaining them together)
+            const filterString = filters.join(',');
+
+            console.log('🎬 FFmpeg filter string:', filterString);
+            console.log(`📊 Total lines: ${topLines.length + bottomLines.length}, Top: ${topLines.length}, Bottom: ${bottomLines.length}`);
 
             ffmpeg()
                 .input(videoPath)
-                .complexFilter(filterChain)
-                .outputOptions([
-                    '-map', '[outv]',
-                    '-map', '0:a?',  // Map audio if it exists
-                    '-c:v', 'libx264',
-                    '-preset', 'fast',
-                    '-crf', '23',
-                    '-c:a', 'copy'
-                ])
+                .videoFilters(filterString)
+                .videoCodec('libx264')
+                .outputOptions(['-preset', 'fast', '-crf', '23'])
+                .audioCodec('copy')
                 .on('start', (cmd) => {
                     console.log('🎬 FFmpeg command:', cmd);
                 })
