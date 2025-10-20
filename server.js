@@ -156,8 +156,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const { width, height } = await getVideoDimensions(videoPath);
             console.log(`📐 Video dimensions: ${width}x${height}`);
 
-            const wrappedTopText = wrapText(topText, 30);
-            const wrappedBottomText = wrapText(bottomText, 30);
+            const wrappedTopText = wrapText(topText, 45);
+            const wrappedBottomText = wrapText(bottomText, 45);
             
             const topLines = wrappedTopText.split('\n').filter(line => line.trim());
             const bottomLines = wrappedBottomText.split('\n').filter(line => line.trim());
@@ -239,10 +239,10 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 });
             }
             
-            // Bottom text - position at bottom (will be over the overlay)
+            // Bottom text - position slightly above the black bar
             if (needsMemeText && bottomText && bottomLines.length > 0) {
                 const totalBottomHeight = bottomLines.length * lineHeight;
-                const bottomOffset = verticalOffset; // Same offset as top text
+                const bottomOffset = overlayHeight + 30; // 30px above the black bar overlay
                 bottomLines.forEach((line, index) => {
                     const escapedLine = escapeTextSimple(line);
                     const yPos = height - totalBottomHeight - bottomOffset + (index * lineHeight);
