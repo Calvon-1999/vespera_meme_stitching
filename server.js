@@ -5,6 +5,7 @@ const fs = require("fs");
 const fsp = require("fs").promises;
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
+const multer = require("multer");
 
 // FFmpeg Setup
 const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path;
@@ -120,16 +121,15 @@ function escapeForDrawtext(text) {
     return text;
 }
 
-async function addMemeText(videoPath, outputPath, topText = "", bottomText = "") {
+async function addMemeText(videoPath, outputPath, topText = "", bottomText = "", projectName = "") {
     return new Promise(async (resolve, reject) => {
         try {
             console.log('🎨 addMemeText function called');
             
-            if (!topText && !bottomText) {
-                console.log('⚠️  No text provided - copying video file');
-                await fsp.copyFile(videoPath, outputPath);
-                resolve();
-                return;
+            // Always add branding, even if no meme text
+            const needsMemeText = (topText || bottomText);
+            if (!needsMemeText) {
+                console.log('⚠️  No meme text provided - adding only branding');
             }
 
             const { width, height } = await getVideoDimensions(videoPath);
@@ -140,7 +140,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             
             const topLines = wrappedTopText.split('\n').filter(line => line.trim());
             const bottomLines = wrappedBottomText.split('\n').filter(line => line.trim());
-            const maxLines = Math.max(topLines.length, bottomLines.length, 1);
+            const maxLines = needsMemeText ? Math.max(topLines.length, bottomLines.length, 1) : 1;
             
             const baseDivisor = 12;
             const verticalCompressionFactor = 2;
@@ -174,7 +174,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
             let filters = [];
 
             // Top text - collect all drawtext filters
-            if (topText && topLines.length > 0) {
+            if (needsMemeText && topText && topLines.length > 0) {
                 topLines.forEach((line, index) => {
                     const escapedLine = escapeTextSimple(line);
                     const yPos = verticalOffset + (index * lineHeight);
@@ -182,15 +182,36 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "")
                 });
             }
 
-            // Bottom text - collect all drawtext filters
-            if (bottomText && bottomLines.length > 0) {
+            // Bottom text - collect all drawtext filters (moved higher to avoid black bar)
+            if (needsMemeText && bottomText && bottomLines.length > 0) {
                 const totalBottomHeight = bottomLines.length * lineHeight;
+                const bottomOffset = verticalOffset + 40; // Move higher to avoid black bar
                 bottomLines.forEach((line, index) => {
                     const escapedLine = escapeTextSimple(line);
-                    const yPos = `h-${totalBottomHeight - (index * lineHeight)}-${verticalOffset}`;
+                    const yPos = `h-${totalBottomHeight - (index * lineHeight)}-${bottomOffset}`;
                     filters.push(`drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}`);
                 });
             }
+
+            // Add luna.fun branding to bottom left
+            const brandingText = projectName ? `luna.fun/${projectName}` : "luna.fun";
+            const brandingFontSize = Math.max(12, Math.floor(fontSize * 0.4)); // Smaller font for branding
+            const brandingStrokeWidth = Math.max(1, Math.floor(brandingFontSize / 15));
+            
+            const brandingParams = [
+                `fontfile='${escapedFontPath}'`,
+                `fontcolor=white`,
+                `fontsize=${brandingFontSize}`,
+                `bordercolor=black`,
+                `borderw=${brandingStrokeWidth}`,
+                `shadowcolor=black@0.3`,
+                `shadowx=1`,
+                `shadowy=1`
+            ].join(':');
+
+            const escapedBrandingText = escapeTextSimple(brandingText);
+            const brandingYPos = `h-${brandingFontSize + 10}`; // 10px from bottom
+            filters.push(`drawtext=${brandingParams}:text='${escapedBrandingText}':x=20:y=${brandingYPos}`);
 
             // Join all filters with commas (chaining them together)
             const filterString = filters.join(',');
@@ -355,7 +376,8 @@ app.post("/api/combine", async (req, res) => {
             final_music_url,
             response_modality,
             meme_top_text,
-            meme_bottom_text
+            meme_bottom_text,
+            meme_project_name
         } = req.body;
 
         // Log received parameters
@@ -366,6 +388,7 @@ app.post("/api/combine", async (req, res) => {
         console.log('   Response Modality:', response_modality);
         console.log('   Meme Top Text:', meme_top_text);
         console.log('   Meme Bottom Text:', meme_bottom_text);
+        console.log('   Project Name:', meme_project_name);
 
         // Validate video URL
         if (!final_stitched_video) {
@@ -382,7 +405,8 @@ app.post("/api/combine", async (req, res) => {
         const dialoguePath = final_dialogue ? path.join(TEMP_DIR, `${id}_dialogue.mp3`) : null;
         const musicPath = final_music_url ? path.join(TEMP_DIR, `${id}_music.mp3`) : null;
         const videoWithTextPath = path.join(TEMP_DIR, `${id}_with_text.mp4`);
-        const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
+        const outputPathWithOverlay = path.join(OUTPUT_DIR, `${id}_with_overlay.mp4`);
+        const outputPathWithoutOverlay = path.join(OUTPUT_DIR, `${id}_without_overlay.mp4`);
 
         // Determine if meme text is needed
         const needsMemeText = (meme_top_text || meme_bottom_text) ? true : false;
@@ -403,23 +427,26 @@ app.post("/api/combine", async (req, res) => {
             await downloadFile(final_music_url, musicPath);
         }
 
-        // Process video with meme text if needed
-        let videoToMix = videoPath;
-        if (needsMemeText) {
-            console.log('\n🎨 Adding meme text overlay...');
-            await addMemeText(videoPath, videoWithTextPath, meme_top_text, meme_bottom_text);
-            videoToMix = videoWithTextPath;
+        // Generate both versions: with and without overlay
+        console.log('\n🎬 Generating both versions...');
+        
+        // Version 1: Without overlay (original video)
+        if (final_dialogue || final_music_url) {
+            console.log('📦 Creating version without overlay...');
+            await mixVideo(videoPath, dialoguePath, musicPath, outputPathWithoutOverlay);
         } else {
-            console.log('\n⏭️  Skipping meme text (none provided)');
+            console.log('📦 Creating version without overlay (no audio mixing)...');
+            await fsp.copyFile(videoPath, outputPathWithoutOverlay);
         }
 
-        // Mix audio if provided
+        // Version 2: With overlay (always create this version with branding)
+        console.log('🎨 Creating version with overlay and branding...');
+        await addMemeText(videoPath, videoWithTextPath, meme_top_text, meme_bottom_text, meme_project_name);
+        
         if (final_dialogue || final_music_url) {
-            console.log('\n🎵 Mixing audio with video...');
-            await mixVideo(videoToMix, dialoguePath, musicPath, outputPath);
+            await mixVideo(videoWithTextPath, dialoguePath, musicPath, outputPathWithOverlay);
         } else {
-            console.log('\n📦 No audio to mix - copying video...');
-            await fsp.copyFile(videoToMix, outputPath);
+            await fsp.copyFile(videoWithTextPath, outputPathWithOverlay);
         }
 
         // Clean up temporary files
@@ -437,15 +464,19 @@ app.post("/api/combine", async (req, res) => {
         console.log(`\n✅ Processing complete in ${duration}s`);
         console.log('========================================\n');
 
-        res.json({
+        // Prepare response with both outputs
+        const response = {
             success: true,
-            message: needsMemeText 
-                ? "Video created with meme text overlay" 
-                : "Video created successfully",
-            download_url: `/download/${path.basename(outputPath)}`,
+            message: "Two videos created: one with branding/overlay and one without",
             processing_time: `${duration}s`,
-            job_id: id
-        });
+            job_id: id,
+            downloads: {
+                without_overlay: `/download/${path.basename(outputPathWithoutOverlay)}`,
+                with_overlay: `/download/${path.basename(outputPathWithOverlay)}`
+            }
+        };
+
+        res.json(response);
 
     } catch (err) {
         console.error('\n❌ PROCESSING FAILED');
@@ -460,6 +491,108 @@ app.post("/api/combine", async (req, res) => {
         });
     }
 });
+
+// ==================== FRONTEND API ENDPOINTS ====================
+
+// Configure multer for file uploads
+const upload = multer({ dest: TEMP_DIR });
+
+// Store for tracking video creation jobs
+const videoJobs = new Map();
+
+// Create video endpoint (for frontend)
+app.post("/api/create-video", upload.single('image'), async (req, res) => {
+    try {
+        const { username, tweet, projectName } = req.body;
+        const imageFile = req.file;
+        const imageUrl = req.body.imageUrl;
+
+        if (!username || !tweet) {
+            return res.status(400).json({ error: "Username and tweet are required" });
+        }
+
+        // Generate UUID for this job
+        const uuid = uuidv4();
+        
+        // Store job info
+        videoJobs.set(uuid, {
+            status: 'processing',
+            username,
+            tweet,
+            projectName: projectName || 'default',
+            imageFile: imageFile ? imageFile.path : null,
+            imageUrl: imageUrl || null,
+            created_at: new Date()
+        });
+
+        console.log(`🎬 New video job created: ${uuid}`);
+        
+        // Start processing in background
+        processVideoJob(uuid);
+
+        res.json({ uuid, status: 'processing' });
+    } catch (error) {
+        console.error('Error creating video job:', error);
+        res.status(500).json({ error: 'Failed to create video job' });
+    }
+});
+
+// Status endpoint
+app.get("/api/status/:uuid", (req, res) => {
+    const { uuid } = req.params;
+    const job = videoJobs.get(uuid);
+    
+    if (!job) {
+        return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    res.json(job);
+});
+
+// Background processing function
+async function processVideoJob(uuid) {
+    try {
+        const job = videoJobs.get(uuid);
+        if (!job) return;
+
+        console.log(`🎬 Processing video job: ${uuid}`);
+        
+        await ensureDirectories();
+        
+        // For demo purposes, we'll create placeholder files
+        // In a real implementation, you would:
+        // 1. Process the uploaded image
+        // 2. Generate video with the image and text
+        // 3. Create both versions (with and without overlay)
+        
+        const outputPathWithoutOverlay = path.join(OUTPUT_DIR, `${uuid}_without_overlay.mp4`);
+        const outputPathWithOverlay = path.join(OUTPUT_DIR, `${uuid}_with_overlay.mp4`);
+        
+        // Create placeholder files
+        await fsp.writeFile(outputPathWithoutOverlay, '');
+        await fsp.writeFile(outputPathWithOverlay, '');
+        
+        console.log(`📝 Project name for branding: ${job.projectName}`);
+        
+        // Update job status with both versions
+        job.status = 'stitched';
+        job.downloads = {
+            without_overlay: `/download/${uuid}_without_overlay.mp4`,
+            with_overlay: `/download/${uuid}_with_overlay.mp4`
+        };
+        job.completed_at = new Date();
+        
+        console.log(`✅ Video job completed: ${uuid}`);
+        
+    } catch (error) {
+        console.error(`❌ Error processing video job ${uuid}:`, error);
+        const job = videoJobs.get(uuid);
+        if (job) {
+            job.status = 'failed';
+            job.error_message = error.message;
+        }
+    }
+}
 
 // Serve the output videos
 app.use("/download", express.static(OUTPUT_DIR));
