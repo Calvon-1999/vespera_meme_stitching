@@ -239,10 +239,10 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 });
             }
             
-            // Bottom text - position slightly above the black bar
+            // Bottom text - position right at the black bar (no gap)
             if (needsMemeText && bottomText && bottomLines.length > 0) {
                 const totalBottomHeight = bottomLines.length * lineHeight;
-                const bottomOffset = overlayHeight + 5; // 5px above the black bar overlay
+                const bottomOffset = overlayHeight; // No gap - right at the black bar
                 bottomLines.forEach((line, index) => {
                     const escapedLine = escapeTextSimple(line);
                     const yPos = height - totalBottomHeight - bottomOffset + (index * lineHeight);
