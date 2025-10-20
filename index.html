@@ -394,17 +394,65 @@
                     if (data.status === 'stitched' && data.final_stitch_video) {
                         // Success! Video is ready
                         result.className = 'result success';
-                        result.innerHTML = `
-                            <h3>🎉 Your Video is Ready!</h3>
-                            <p><strong>UUID:</strong> ${uuid}</p>
-                            <a href="${data.final_stitch_video}" class="download-link" target="_blank">
-                                🎬 Watch Your Video
-                            </a>
-                            <br>
-                            <a href="${data.final_stitch_video}" class="download-link" download style="margin-top: 10px; background: #4299e1;">
-                                📥 Download Video
-                            </a>
-                        `;
+                        
+                        // Check if we have both versions (with and without overlay)
+                        let downloadHTML = '';
+                        
+                        if (data.downloads) {
+                            // New format with multiple downloads
+                            downloadHTML = `
+                                <h3>🎉 Your Videos are Ready!</h3>
+                                <p><strong>UUID:</strong> ${uuid}</p>
+                                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px;">
+                            `;
+                            
+                            if (data.downloads.without_overlay) {
+                                downloadHTML += `
+                                    <div style="flex: 1; min-width: 200px; padding: 15px; border: 2px solid #e2e8f0; border-radius: 8px; background: #f8fafc;">
+                                        <h4 style="margin: 0 0 10px 0; color: #4a5568;">📹 Original Version</h4>
+                                        <p style="margin: 0 0 10px 0; color: #718096; font-size: 0.9rem;">Clean video without any overlays</p>
+                                        <a href="${data.downloads.without_overlay}" class="download-link" target="_blank" style="display: inline-block; margin-right: 10px;">
+                                            🎬 Watch
+                                        </a>
+                                        <a href="${data.downloads.without_overlay}" class="download-link" download style="background: #4299e1;">
+                                            📥 Download
+                                        </a>
+                                    </div>
+                                `;
+                            }
+                            
+                            if (data.downloads.with_overlay) {
+                                downloadHTML += `
+                                    <div style="flex: 1; min-width: 200px; padding: 15px; border: 2px solid #e2e8f0; border-radius: 8px; background: #f8fafc;">
+                                        <h4 style="margin: 0 0 10px 0; color: #4a5568;">🎨 With Branding</h4>
+                                        <p style="margin: 0 0 10px 0; color: #718096; font-size: 0.9rem;">With luna.fun branding and text overlay</p>
+                                        <a href="${data.downloads.with_overlay}" class="download-link" target="_blank" style="display: inline-block; margin-right: 10px;">
+                                            🎬 Watch
+                                        </a>
+                                        <a href="${data.downloads.with_overlay}" class="download-link" download style="background: #4299e1;">
+                                            📥 Download
+                                        </a>
+                                    </div>
+                                `;
+                            }
+                            
+                            downloadHTML += `</div>`;
+                        } else {
+                            // Legacy format with single video
+                            downloadHTML = `
+                                <h3>🎉 Your Video is Ready!</h3>
+                                <p><strong>UUID:</strong> ${uuid}</p>
+                                <a href="${data.final_stitch_video}" class="download-link" target="_blank">
+                                    🎬 Watch Your Video
+                                </a>
+                                <br>
+                                <a href="${data.final_stitch_video}" class="download-link" download style="margin-top: 10px; background: #4299e1;">
+                                    📥 Download Video
+                                </a>
+                            `;
+                        }
+                        
+                        result.innerHTML = downloadHTML;
                         
                         submitBtn.disabled = false;
                         loading.style.display = 'none';
