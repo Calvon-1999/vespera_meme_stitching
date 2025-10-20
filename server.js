@@ -17,7 +17,7 @@ ffmpeg.setFfprobePath(ffprobePath);
 const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf");
 
 // Overlay Image Configuration
-const OVERLAY_IMAGE_PATH = path.join(__dirname, "image", "2.png");
+const OVERLAY_IMAGE_PATH = path.join(__dirname, "image", "blackbarLucien.png");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -239,10 +239,10 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 });
             }
             
-            // Bottom text - position ABOVE the overlay bar
+            // Bottom text - position at bottom (will be over the overlay)
             if (needsMemeText && bottomText && bottomLines.length > 0) {
                 const totalBottomHeight = bottomLines.length * lineHeight;
-                const bottomOffset = overlayHeight + 20; // 20px above overlay
+                const bottomOffset = verticalOffset; // Same offset as top text
                 bottomLines.forEach((line, index) => {
                     const escapedLine = escapeTextSimple(line);
                     const yPos = height - totalBottomHeight - bottomOffset + (index * lineHeight);
@@ -253,10 +253,10 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 });
             }
             
-            // Part 4: Add branding text on overlay bar
+            // Part 4: Add branding text at bottom-left
             const brandingText = projectName ? `luna.fun/${projectName}` : "luna.fun";
-            const brandingFontSize = Math.max(28, Math.floor(fontSize * 0.9)); // Large and prominent
-            const brandingStrokeWidth = Math.max(2, Math.floor(brandingFontSize / 12));
+            const brandingFontSize = 18; // Smaller, fixed size
+            const brandingStrokeWidth = 1;
             
             const brandingParams = [
                 `fontfile='${escapedFontPath}'`,
@@ -264,24 +264,25 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 `fontsize=${brandingFontSize}`,
                 `bordercolor=black`,
                 `borderw=${brandingStrokeWidth}`,
-                `shadowcolor=black@0.7`,
-                `shadowx=3`,
-                `shadowy=3`
+                `shadowcolor=black@0.5`,
+                `shadowx=2`,
+                `shadowy=2`
             ].join(':');
 
             const escapedBrandingText = escapeTextSimple(brandingText);
-            // Center branding text on the overlay bar
-            const brandingY = overlayY + Math.floor(overlayHeight / 2); // Vertically centered on overlay
+            // Position at bottom-left corner
+            const brandingX = 20; // 20px from left edge
+            const brandingY = height - brandingFontSize - 20; // 20px from bottom
             
             // Final text overlay - no output label (goes to output)
-            filterParts.push(`[${currentLabel}]drawtext=${brandingParams}:text='${escapedBrandingText}':x=(w-text_w)/2:y=${brandingY}-text_h/2`);
+            filterParts.push(`[${currentLabel}]drawtext=${brandingParams}:text='${escapedBrandingText}':x=${brandingX}:y=${brandingY}`);
             
             // Join all parts with semicolons
             const filterComplex = filterParts.join(';');
             
             console.log('🎬 Filter complex string:');
             console.log(filterComplex);
-            console.log(`📊 Branding "${brandingText}" centered on overlay bar at y=${brandingY}`);
+            console.log(`📊 Branding "${brandingText}" at bottom-left: x=${brandingX}, y=${brandingY}`);
 
             // Execute FFmpeg
             ffmpeg(videoPath)
