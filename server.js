@@ -191,61 +191,63 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 `shadowy=2`
             ].join(':');
 
-            // Build complex filter as an array
+            // Build the complete complex filter chain
             let complexFilter = [];
             
-            // First, load the overlay image if it exists
-            if (fs.existsSync(OVERLAY_IMAGE_PATH)) {
+            // Check if overlay image exists
+            const hasOverlay = fs.existsSync(OVERLAY_IMAGE_PATH);
+            
+            if (hasOverlay) {
                 console.log('🖼️  Adding overlay image and branding...');
                 
                 const overlayDimensions = await getImageDimensions(OVERLAY_IMAGE_PATH);
                 console.log(`📐 Overlay image dimensions: ${overlayDimensions.width}x${overlayDimensions.height}`);
                 
                 const escapedImagePath = OVERLAY_IMAGE_PATH.replace(/:/g, '\\:');
-                const overlayX = `w-${overlayDimensions.width}-20`;
-                const overlayY = `h-${overlayDimensions.height}-20`;
+                const overlayX = `w-${overlayDimensions.width}-20`; // 20px from right
+                const overlayY = `h-${overlayDimensions.height}-20`; // 20px from bottom
                 
-                // Load overlay image
+                // Step 1: Load the overlay image
                 complexFilter.push(`movie=${escapedImagePath}[overlay]`);
                 
-                // Apply overlay to video
-                complexFilter.push(`[0:v][overlay]overlay=${overlayX}:${overlayY}[v_with_overlay]`);
+                // Step 2: Overlay the image on the video
+                complexFilter.push(`[0:v][overlay]overlay=${overlayX}:${overlayY}[v1]`);
                 
-                // Now add text filters on top
-                let currentLabel = 'v_with_overlay';
-                let filterIndex = 0;
+                // Now we'll add text on top of [v1]
+                let currentStream = 'v1';
+                let streamCounter = 2;
                 
-                // Top text
+                // Step 3: Add top meme text
                 if (needsMemeText && topText && topLines.length > 0) {
                     topLines.forEach((line, index) => {
                         const escapedLine = escapeTextSimple(line);
                         const yPos = verticalOffset + (index * lineHeight);
-                        const nextLabel = `text${filterIndex}`;
+                        const nextStream = `v${streamCounter}`;
                         complexFilter.push(
-                            `[${currentLabel}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}[${nextLabel}]`
+                            `[${currentStream}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}[${nextStream}]`
                         );
-                        currentLabel = nextLabel;
-                        filterIndex++;
+                        currentStream = nextStream;
+                        streamCounter++;
                     });
                 }
                 
-                // Bottom text
+                // Step 4: Add bottom meme text
                 if (needsMemeText && bottomText && bottomLines.length > 0) {
                     const totalBottomHeight = bottomLines.length * lineHeight;
-                    const bottomOffset = verticalOffset + 40;
+                    const bottomOffset = verticalOffset + 40; // Move higher to avoid overlay
                     bottomLines.forEach((line, index) => {
                         const escapedLine = escapeTextSimple(line);
                         const yPos = `h-${totalBottomHeight - (index * lineHeight)}-${bottomOffset}`;
-                        const nextLabel = `text${filterIndex}`;
+                        const nextStream = `v${streamCounter}`;
                         complexFilter.push(
-                            `[${currentLabel}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}[${nextLabel}]`
+                            `[${currentStream}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}[${nextStream}]`
                         );
-                        currentLabel = nextLabel;
-                        filterIndex++;
+                        currentStream = nextStream;
+                        streamCounter++;
                     });
                 }
                 
-                // Add branding text on top of overlay
+                // Step 5: Add branding text on top of the overlay image
                 const brandingText = projectName ? `luna.fun/${projectName}` : "luna.fun";
                 const brandingFontSize = Math.max(12, Math.floor(fontSize * 0.4));
                 const brandingStrokeWidth = Math.max(1, Math.floor(brandingFontSize / 15));
@@ -262,33 +264,37 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 ].join(':');
 
                 const escapedBrandingText = escapeTextSimple(brandingText);
-                const brandingX = `w-${overlayDimensions.width}-20+10`;
-                const brandingY = `h-${overlayDimensions.height}-20+10`;
+                // Position branding at top-left of overlay image
+                const brandingX = `w-${overlayDimensions.width}-20+10`; // 10px from left edge of overlay
+                const brandingY = `h-${overlayDimensions.height}-20+10`; // 10px from top of overlay
                 
-                // Final output - no label needed, just map to output
+                // Final filter - no output label needed
                 complexFilter.push(
-                    `[${currentLabel}]drawtext=${brandingParams}:text='${escapedBrandingText}':x=${brandingX}:y=${brandingY}`
+                    `[${currentStream}]drawtext=${brandingParams}:text='${escapedBrandingText}':x=${brandingX}:y=${brandingY}`
                 );
                 
-            } else {
-                console.warn('⚠️  Overlay image not found, adding branding only');
+                console.log(`✅ Overlay positioned at: x=${overlayX}, y=${overlayY}`);
+                console.log(`✅ Branding "${brandingText}" positioned at: x=${brandingX}, y=${brandingY}`);
                 
-                // Fallback: Simple text overlay without image
-                let currentLabel = '0:v';
-                let filterIndex = 0;
+            } else {
+                console.warn('⚠️  Overlay image not found at:', OVERLAY_IMAGE_PATH);
+                console.warn('⚠️  Adding text only without overlay');
+                
+                // Fallback: Just add text without overlay
+                let currentStream = '0:v';
+                let streamCounter = 1;
                 
                 // Top text
                 if (needsMemeText && topText && topLines.length > 0) {
                     topLines.forEach((line, index) => {
                         const escapedLine = escapeTextSimple(line);
                         const yPos = verticalOffset + (index * lineHeight);
-                        const nextLabel = filterIndex < (topLines.length + bottomLines.length) ? `text${filterIndex}` : '';
-                        const labelPart = nextLabel ? `[${nextLabel}]` : '';
+                        const nextStream = `v${streamCounter}`;
                         complexFilter.push(
-                            `[${currentLabel}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}${labelPart}`
+                            `[${currentStream}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}[${nextStream}]`
                         );
-                        if (nextLabel) currentLabel = nextLabel;
-                        filterIndex++;
+                        currentStream = nextStream;
+                        streamCounter++;
                     });
                 }
                 
@@ -299,17 +305,16 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                     bottomLines.forEach((line, index) => {
                         const escapedLine = escapeTextSimple(line);
                         const yPos = `h-${totalBottomHeight - (index * lineHeight)}-${bottomOffset}`;
-                        const nextLabel = filterIndex < (topLines.length + bottomLines.length) ? `text${filterIndex}` : '';
-                        const labelPart = nextLabel ? `[${nextLabel}]` : '';
+                        const nextStream = `v${streamCounter}`;
                         complexFilter.push(
-                            `[${currentLabel}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}${labelPart}`
+                            `[${currentStream}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}[${nextStream}]`
                         );
-                        if (nextLabel) currentLabel = nextLabel;
-                        filterIndex++;
+                        currentStream = nextStream;
+                        streamCounter++;
                     });
                 }
                 
-                // Add branding
+                // Branding in bottom-left
                 const brandingText = projectName ? `luna.fun/${projectName}` : "luna.fun";
                 const brandingFontSize = Math.max(12, Math.floor(fontSize * 0.4));
                 const brandingStrokeWidth = Math.max(1, Math.floor(brandingFontSize / 15));
@@ -328,14 +333,19 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 const escapedBrandingText = escapeTextSimple(brandingText);
                 const brandingYPos = `h-${brandingFontSize + 10}`;
                 
+                // Final output
                 complexFilter.push(
-                    `[${currentLabel}]drawtext=${brandingParams}:text='${escapedBrandingText}':x=20:y=${brandingYPos}`
+                    `[${currentStream}]drawtext=${brandingParams}:text='${escapedBrandingText}':x=20:y=${brandingYPos}`
                 );
             }
 
-            console.log('🎬 FFmpeg complex filter:', complexFilter);
-            console.log(`📊 Total text lines: ${topLines.length + bottomLines.length}, Top: ${topLines.length}, Bottom: ${bottomLines.length}`);
+            console.log('🎬 FFmpeg complex filter chain:');
+            complexFilter.forEach((filter, idx) => {
+                console.log(`   ${idx + 1}. ${filter}`);
+            });
+            console.log(`📊 Total meme text lines: ${topLines.length + bottomLines.length}`);
 
+            // Execute FFmpeg with the complex filter
             const ffmpegCmd = ffmpeg()
                 .input(videoPath)
                 .complexFilter(complexFilter)
@@ -346,8 +356,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                     console.log('🎬 FFmpeg command:', cmd);
                 })
                 .on('stderr', (line) => {
-                    if (line.includes('Error') || line.includes('Invalid')) {
-                        console.error('FFmpeg stderr:', line);
+                    if (line.includes('Error') || line.includes('Invalid') || line.includes('Cannot find')) {
+                        console.error('⚠️ FFmpeg stderr:', line);
                     }
                 })
                 .on('error', (err) => {
@@ -365,6 +375,15 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             reject(err);
         }
     });
+}
+
+// Keep the helper function
+function escapeTextSimple(text) {
+    if (!text) return '';
+    text = text.replace(/\\/g, '\\\\');
+    text = text.replace(/'/g, "'\\\\''");
+    text = text.replace(/:/g, '\\:');
+    return text;
 }
 // Simplified escape function (no newline handling needed)
 function escapeTextSimple(text) {
