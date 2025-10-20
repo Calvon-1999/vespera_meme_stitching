@@ -148,7 +148,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
         try {
             console.log('🎨 addMemeText function called');
             
-            // Always add branding, even if no meme text
             const needsMemeText = (topText || bottomText);
             if (!needsMemeText) {
                 console.log('⚠️  No meme text provided - adding only branding');
@@ -192,131 +191,161 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 `shadowy=2`
             ].join(':');
 
-            // Build a single filter string without intermediate labels
-            let filters = [];
-
-            // Top text - collect all drawtext filters
-            if (needsMemeText && topText && topLines.length > 0) {
-                topLines.forEach((line, index) => {
-                    const escapedLine = escapeTextSimple(line);
-                    const yPos = verticalOffset + (index * lineHeight);
-                    filters.push(`drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}`);
-                });
-            }
-
-            // Bottom text - collect all drawtext filters (moved higher to avoid black bar)
-            if (needsMemeText && bottomText && bottomLines.length > 0) {
-                const totalBottomHeight = bottomLines.length * lineHeight;
-                const bottomOffset = verticalOffset + 40; // Move higher to avoid black bar
-                bottomLines.forEach((line, index) => {
-                    const escapedLine = escapeTextSimple(line);
-                    const yPos = `h-${totalBottomHeight - (index * lineHeight)}-${bottomOffset}`;
-                    filters.push(`drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}`);
-                });
-            }
-
-            // Add overlay image and branding text on top of it
-            const brandingText = projectName ? `luna.fun/${projectName}` : "luna.fun";
-            const brandingFontSize = Math.max(12, Math.floor(fontSize * 0.4)); // Smaller font for branding
-            const brandingStrokeWidth = Math.max(1, Math.floor(brandingFontSize / 15));
+            // Build complex filter as an array
+            let complexFilter = [];
             
-            // Check if overlay image exists
+            // First, load the overlay image if it exists
             if (fs.existsSync(OVERLAY_IMAGE_PATH)) {
                 console.log('🖼️  Adding overlay image and branding...');
                 
-                // Get overlay image dimensions
                 const overlayDimensions = await getImageDimensions(OVERLAY_IMAGE_PATH);
                 console.log(`📐 Overlay image dimensions: ${overlayDimensions.width}x${overlayDimensions.height}`);
                 
-                // Calculate overlay position (bottom right corner)
-                const overlayX = `w-${overlayDimensions.width}-20`; // 20px from right edge
-                const overlayY = `h-${overlayDimensions.height}-20`; // 20px from bottom
-                
-                // Add image overlay using complex filter
                 const escapedImagePath = OVERLAY_IMAGE_PATH.replace(/:/g, '\\:');
-                filters.push(`movie=${escapedImagePath}[overlay]`);
-                filters.push(`[0:v][overlay]overlay=${overlayX}:${overlayY}[v_with_overlay]`);
-                
-                // Add branding text on top of the overlay image
-                const brandingParams = [
-                    `fontfile='${escapedFontPath}'`,
-                    `fontcolor=white`,
-                    `fontsize=${brandingFontSize}`,
-                    `bordercolor=black`,
-                    `borderw=${brandingStrokeWidth}`,
-                    `shadowcolor=black@0.3`,
-                    `shadowx=1`,
-                    `shadowy=1`
-                ].join(':');
-
-                const escapedBrandingText = escapeTextSimple(brandingText);
-                // Position branding text at the top of the overlay image
-                const brandingX = `w-${overlayDimensions.width}-20+10`; // 10px from left edge of overlay
-                const brandingY = `h-${overlayDimensions.height}-20+10`; // 10px from top of overlay
-                
-                filters.push(`[v_with_overlay]drawtext=${brandingParams}:text='${escapedBrandingText}':x=${brandingX}:y=${brandingY}[final]`);
-            } else {
-                console.warn('⚠️  Overlay image not found, adding branding only');
-                
-                // Fallback: Add branding to bottom left if no overlay image
-                const brandingParams = [
-                    `fontfile='${escapedFontPath}'`,
-                    `fontcolor=white`,
-                    `fontsize=${brandingFontSize}`,
-                    `bordercolor=black`,
-                    `borderw=${brandingStrokeWidth}`,
-                    `shadowcolor=black@0.3`,
-                    `shadowx=1`,
-                    `shadowy=1`
-                ].join(':');
-
-                const escapedBrandingText = escapeTextSimple(brandingText);
-                const brandingYPos = `h-${brandingFontSize + 10}`; // 10px from bottom
-                filters.push(`drawtext=${brandingParams}:text='${escapedBrandingText}':x=20:y=${brandingYPos}`);
-            }
-
-            console.log('🎬 FFmpeg filter string:', filters);
-            console.log(`📊 Total lines: ${topLines.length + bottomLines.length}, Top: ${topLines.length}, Bottom: ${bottomLines.length}`);
-
-            const ffmpegCmd = ffmpeg()
-                .input(videoPath)
-                .videoCodec('libx264')
-                .outputOptions(['-preset', 'fast', '-crf', '23'])
-                .audioCodec('copy');
-
-            // Apply complex filters if we have overlay image
-            if (fs.existsSync(OVERLAY_IMAGE_PATH)) {
-                const escapedImagePath = OVERLAY_IMAGE_PATH.replace(/:/g, '\\:');
-                const overlayDimensions = await getImageDimensions(OVERLAY_IMAGE_PATH);
                 const overlayX = `w-${overlayDimensions.width}-20`;
                 const overlayY = `h-${overlayDimensions.height}-20`;
                 
-                // Build complex filter
-                const complexFilter = [
-                    `movie=${escapedImagePath}[overlay]`,
-                    `[0:v][overlay]overlay=${overlayX}:${overlayY}[v_with_overlay]`
-                ];
+                // Load overlay image
+                complexFilter.push(`movie=${escapedImagePath}[overlay]`);
                 
-                // Add text filters to the complex filter
-                if (filters.length > 0) {
-                    complexFilter.push(...filters);
+                // Apply overlay to video
+                complexFilter.push(`[0:v][overlay]overlay=${overlayX}:${overlayY}[v_with_overlay]`);
+                
+                // Now add text filters on top
+                let currentLabel = 'v_with_overlay';
+                let filterIndex = 0;
+                
+                // Top text
+                if (needsMemeText && topText && topLines.length > 0) {
+                    topLines.forEach((line, index) => {
+                        const escapedLine = escapeTextSimple(line);
+                        const yPos = verticalOffset + (index * lineHeight);
+                        const nextLabel = `text${filterIndex}`;
+                        complexFilter.push(
+                            `[${currentLabel}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}[${nextLabel}]`
+                        );
+                        currentLabel = nextLabel;
+                        filterIndex++;
+                    });
                 }
                 
-                ffmpegCmd.complexFilter(complexFilter);
+                // Bottom text
+                if (needsMemeText && bottomText && bottomLines.length > 0) {
+                    const totalBottomHeight = bottomLines.length * lineHeight;
+                    const bottomOffset = verticalOffset + 40;
+                    bottomLines.forEach((line, index) => {
+                        const escapedLine = escapeTextSimple(line);
+                        const yPos = `h-${totalBottomHeight - (index * lineHeight)}-${bottomOffset}`;
+                        const nextLabel = `text${filterIndex}`;
+                        complexFilter.push(
+                            `[${currentLabel}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}[${nextLabel}]`
+                        );
+                        currentLabel = nextLabel;
+                        filterIndex++;
+                    });
+                }
+                
+                // Add branding text on top of overlay
+                const brandingText = projectName ? `luna.fun/${projectName}` : "luna.fun";
+                const brandingFontSize = Math.max(12, Math.floor(fontSize * 0.4));
+                const brandingStrokeWidth = Math.max(1, Math.floor(brandingFontSize / 15));
+                
+                const brandingParams = [
+                    `fontfile='${escapedFontPath}'`,
+                    `fontcolor=white`,
+                    `fontsize=${brandingFontSize}`,
+                    `bordercolor=black`,
+                    `borderw=${brandingStrokeWidth}`,
+                    `shadowcolor=black@0.3`,
+                    `shadowx=1`,
+                    `shadowy=1`
+                ].join(':');
+
+                const escapedBrandingText = escapeTextSimple(brandingText);
+                const brandingX = `w-${overlayDimensions.width}-20+10`;
+                const brandingY = `h-${overlayDimensions.height}-20+10`;
+                
+                // Final output - no label needed, just map to output
+                complexFilter.push(
+                    `[${currentLabel}]drawtext=${brandingParams}:text='${escapedBrandingText}':x=${brandingX}:y=${brandingY}`
+                );
+                
             } else {
-                // Apply simple filters if no overlay image
-                if (filters.length > 0) {
-                    const filterString = filters.join(',');
-                    ffmpegCmd.videoFilters(filterString);
+                console.warn('⚠️  Overlay image not found, adding branding only');
+                
+                // Fallback: Simple text overlay without image
+                let currentLabel = '0:v';
+                let filterIndex = 0;
+                
+                // Top text
+                if (needsMemeText && topText && topLines.length > 0) {
+                    topLines.forEach((line, index) => {
+                        const escapedLine = escapeTextSimple(line);
+                        const yPos = verticalOffset + (index * lineHeight);
+                        const nextLabel = filterIndex < (topLines.length + bottomLines.length) ? `text${filterIndex}` : '';
+                        const labelPart = nextLabel ? `[${nextLabel}]` : '';
+                        complexFilter.push(
+                            `[${currentLabel}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}${labelPart}`
+                        );
+                        if (nextLabel) currentLabel = nextLabel;
+                        filterIndex++;
+                    });
                 }
+                
+                // Bottom text
+                if (needsMemeText && bottomText && bottomLines.length > 0) {
+                    const totalBottomHeight = bottomLines.length * lineHeight;
+                    const bottomOffset = verticalOffset + 40;
+                    bottomLines.forEach((line, index) => {
+                        const escapedLine = escapeTextSimple(line);
+                        const yPos = `h-${totalBottomHeight - (index * lineHeight)}-${bottomOffset}`;
+                        const nextLabel = filterIndex < (topLines.length + bottomLines.length) ? `text${filterIndex}` : '';
+                        const labelPart = nextLabel ? `[${nextLabel}]` : '';
+                        complexFilter.push(
+                            `[${currentLabel}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}${labelPart}`
+                        );
+                        if (nextLabel) currentLabel = nextLabel;
+                        filterIndex++;
+                    });
+                }
+                
+                // Add branding
+                const brandingText = projectName ? `luna.fun/${projectName}` : "luna.fun";
+                const brandingFontSize = Math.max(12, Math.floor(fontSize * 0.4));
+                const brandingStrokeWidth = Math.max(1, Math.floor(brandingFontSize / 15));
+                
+                const brandingParams = [
+                    `fontfile='${escapedFontPath}'`,
+                    `fontcolor=white`,
+                    `fontsize=${brandingFontSize}`,
+                    `bordercolor=black`,
+                    `borderw=${brandingStrokeWidth}`,
+                    `shadowcolor=black@0.3`,
+                    `shadowx=1`,
+                    `shadowy=1`
+                ].join(':');
+
+                const escapedBrandingText = escapeTextSimple(brandingText);
+                const brandingYPos = `h-${brandingFontSize + 10}`;
+                
+                complexFilter.push(
+                    `[${currentLabel}]drawtext=${brandingParams}:text='${escapedBrandingText}':x=20:y=${brandingYPos}`
+                );
             }
 
-            ffmpegCmd
+            console.log('🎬 FFmpeg complex filter:', complexFilter);
+            console.log(`📊 Total text lines: ${topLines.length + bottomLines.length}, Top: ${topLines.length}, Bottom: ${bottomLines.length}`);
+
+            const ffmpegCmd = ffmpeg()
+                .input(videoPath)
+                .complexFilter(complexFilter)
+                .videoCodec('libx264')
+                .audioCodec('copy')
+                .outputOptions(['-preset', 'fast', '-crf', '23'])
                 .on('start', (cmd) => {
                     console.log('🎬 FFmpeg command:', cmd);
                 })
                 .on('stderr', (line) => {
-                    // Only log actual errors, not warnings
                     if (line.includes('Error') || line.includes('Invalid')) {
                         console.error('FFmpeg stderr:', line);
                     }
