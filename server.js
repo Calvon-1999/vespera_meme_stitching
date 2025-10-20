@@ -16,6 +16,9 @@ ffmpeg.setFfprobePath(ffprobePath);
 // Custom Font Configuration
 const CUSTOM_FONT_PATH = path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf");
 
+// Overlay Image Configuration
+const OVERLAY_IMAGE_PATH = path.join(__dirname, "image", "2.png");
+
 const app = express();
 const PORT = process.env.PORT || 8080;
 
@@ -67,6 +70,25 @@ async function getVideoDimensions(filepath) {
                 resolve({
                     width: videoStream.width,
                     height: videoStream.height
+                });
+            }
+        });
+    });
+}
+
+async function getImageDimensions(filepath) {
+    return new Promise((resolve, reject) => {
+        ffmpeg.ffprobe(filepath, (err, metadata) => {
+            if (err) reject(err);
+            else {
+                const imageStream = metadata.streams.find(s => s.codec_type === 'video');
+                if (!imageStream) {
+                    reject(new Error('No image stream found'));
+                    return;
+                }
+                resolve({
+                    width: imageStream.width,
+                    height: imageStream.height
                 });
             }
         });
@@ -193,38 +215,103 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 });
             }
 
-            // Add luna.fun branding to bottom left
+            // Add overlay image and branding text on top of it
             const brandingText = projectName ? `luna.fun/${projectName}` : "luna.fun";
             const brandingFontSize = Math.max(12, Math.floor(fontSize * 0.4)); // Smaller font for branding
             const brandingStrokeWidth = Math.max(1, Math.floor(brandingFontSize / 15));
             
-            const brandingParams = [
-                `fontfile='${escapedFontPath}'`,
-                `fontcolor=white`,
-                `fontsize=${brandingFontSize}`,
-                `bordercolor=black`,
-                `borderw=${brandingStrokeWidth}`,
-                `shadowcolor=black@0.3`,
-                `shadowx=1`,
-                `shadowy=1`
-            ].join(':');
+            // Check if overlay image exists
+            if (fs.existsSync(OVERLAY_IMAGE_PATH)) {
+                console.log('🖼️  Adding overlay image and branding...');
+                
+                // Get overlay image dimensions
+                const overlayDimensions = await getImageDimensions(OVERLAY_IMAGE_PATH);
+                console.log(`📐 Overlay image dimensions: ${overlayDimensions.width}x${overlayDimensions.height}`);
+                
+                // Calculate overlay position (bottom right corner)
+                const overlayX = `w-${overlayDimensions.width}-20`; // 20px from right edge
+                const overlayY = `h-${overlayDimensions.height}-20`; // 20px from bottom
+                
+                // Add image overlay using complex filter
+                const escapedImagePath = OVERLAY_IMAGE_PATH.replace(/:/g, '\\:');
+                filters.push(`movie=${escapedImagePath}[overlay]`);
+                filters.push(`[0:v][overlay]overlay=${overlayX}:${overlayY}[v_with_overlay]`);
+                
+                // Add branding text on top of the overlay image
+                const brandingParams = [
+                    `fontfile='${escapedFontPath}'`,
+                    `fontcolor=white`,
+                    `fontsize=${brandingFontSize}`,
+                    `bordercolor=black`,
+                    `borderw=${brandingStrokeWidth}`,
+                    `shadowcolor=black@0.3`,
+                    `shadowx=1`,
+                    `shadowy=1`
+                ].join(':');
 
-            const escapedBrandingText = escapeTextSimple(brandingText);
-            const brandingYPos = `h-${brandingFontSize + 10}`; // 10px from bottom
-            filters.push(`drawtext=${brandingParams}:text='${escapedBrandingText}':x=20:y=${brandingYPos}`);
+                const escapedBrandingText = escapeTextSimple(brandingText);
+                // Position branding text at the top of the overlay image
+                const brandingX = `w-${overlayDimensions.width}-20+10`; // 10px from left edge of overlay
+                const brandingY = `h-${overlayDimensions.height}-20+10`; // 10px from top of overlay
+                
+                filters.push(`[v_with_overlay]drawtext=${brandingParams}:text='${escapedBrandingText}':x=${brandingX}:y=${brandingY}[final]`);
+            } else {
+                console.warn('⚠️  Overlay image not found, adding branding only');
+                
+                // Fallback: Add branding to bottom left if no overlay image
+                const brandingParams = [
+                    `fontfile='${escapedFontPath}'`,
+                    `fontcolor=white`,
+                    `fontsize=${brandingFontSize}`,
+                    `bordercolor=black`,
+                    `borderw=${brandingStrokeWidth}`,
+                    `shadowcolor=black@0.3`,
+                    `shadowx=1`,
+                    `shadowy=1`
+                ].join(':');
 
-            // Join all filters with commas (chaining them together)
-            const filterString = filters.join(',');
+                const escapedBrandingText = escapeTextSimple(brandingText);
+                const brandingYPos = `h-${brandingFontSize + 10}`; // 10px from bottom
+                filters.push(`drawtext=${brandingParams}:text='${escapedBrandingText}':x=20:y=${brandingYPos}`);
+            }
 
-            console.log('🎬 FFmpeg filter string:', filterString);
+            console.log('🎬 FFmpeg filter string:', filters);
             console.log(`📊 Total lines: ${topLines.length + bottomLines.length}, Top: ${topLines.length}, Bottom: ${bottomLines.length}`);
 
-            ffmpeg()
+            const ffmpegCmd = ffmpeg()
                 .input(videoPath)
-                .videoFilters(filterString)
                 .videoCodec('libx264')
                 .outputOptions(['-preset', 'fast', '-crf', '23'])
-                .audioCodec('copy')
+                .audioCodec('copy');
+
+            // Apply complex filters if we have overlay image
+            if (fs.existsSync(OVERLAY_IMAGE_PATH)) {
+                const escapedImagePath = OVERLAY_IMAGE_PATH.replace(/:/g, '\\:');
+                const overlayDimensions = await getImageDimensions(OVERLAY_IMAGE_PATH);
+                const overlayX = `w-${overlayDimensions.width}-20`;
+                const overlayY = `h-${overlayDimensions.height}-20`;
+                
+                // Build complex filter
+                const complexFilter = [
+                    `movie=${escapedImagePath}[overlay]`,
+                    `[0:v][overlay]overlay=${overlayX}:${overlayY}[v_with_overlay]`
+                ];
+                
+                // Add text filters to the complex filter
+                if (filters.length > 0) {
+                    complexFilter.push(...filters);
+                }
+                
+                ffmpegCmd.complexFilter(complexFilter);
+            } else {
+                // Apply simple filters if no overlay image
+                if (filters.length > 0) {
+                    const filterString = filters.join(',');
+                    ffmpegCmd.videoFilters(filterString);
+                }
+            }
+
+            ffmpegCmd
                 .on('start', (cmd) => {
                     console.log('🎬 FFmpeg command:', cmd);
                 })
