@@ -204,29 +204,21 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const overlayDimensions = await getImageDimensions(OVERLAY_IMAGE_PATH);
             console.log(`📐 Overlay image dimensions: ${overlayDimensions.width}x${overlayDimensions.height}`);
             
-            // Scale overlay to fit within video (max 35% of video width)
-            let overlayWidth = overlayDimensions.width;
-            let overlayHeight = overlayDimensions.height;
-            const maxOverlayWidth = Math.floor(width * 0.35);
-            const maxOverlayHeight = Math.floor(height * 0.3);
+            // Use overlay at native size (no scaling needed for 1280x720)
+            const overlayWidth = overlayDimensions.width;
+            const overlayHeight = overlayDimensions.height;
             
-            if (overlayWidth > maxOverlayWidth || overlayHeight > maxOverlayHeight) {
-                const scaleRatio = Math.min(maxOverlayWidth / overlayWidth, maxOverlayHeight / overlayHeight);
-                overlayWidth = Math.floor(overlayWidth * scaleRatio);
-                overlayHeight = Math.floor(overlayHeight * scaleRatio);
-                console.log(`🔄 Scaling overlay to: ${overlayWidth}x${overlayHeight}`);
-            }
-            
-            const overlayX = width - overlayWidth - 20;
-            const overlayY = height - overlayHeight - 20;
-            console.log(`📍 Overlay position: x=${overlayX}, y=${overlayY}`);
+            // Position at bottom of video (centered horizontally, at bottom vertically)
+            const overlayX = Math.floor((width - overlayWidth) / 2); // Center horizontally
+            const overlayY = height - overlayHeight; // Bottom of video
+            console.log(`📍 Overlay position: x=${overlayX}, y=${overlayY} (centered at bottom)`);
 
             // Build filter_complex as a single string with semicolons
             let filterParts = [];
             
-            // Part 1: Load and scale overlay image
+            // Part 1: Load overlay image (no scaling needed)
             const escapedImagePath = OVERLAY_IMAGE_PATH.replace(/:/g, '\\:');
-            filterParts.push(`movie=${escapedImagePath},scale=${overlayWidth}:${overlayHeight}[ovr]`);
+            filterParts.push(`movie=${escapedImagePath}[ovr]`);
             
             // Part 2: Overlay image on video
             filterParts.push(`[0:v][ovr]overlay=${overlayX}:${overlayY}[base]`);
@@ -247,10 +239,10 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 });
             }
             
-            // Bottom text
+            // Bottom text - position ABOVE the overlay bar
             if (needsMemeText && bottomText && bottomLines.length > 0) {
                 const totalBottomHeight = bottomLines.length * lineHeight;
-                const bottomOffset = overlayHeight + 60; // Position above overlay
+                const bottomOffset = overlayHeight + 20; // 20px above overlay
                 bottomLines.forEach((line, index) => {
                     const escapedLine = escapeTextSimple(line);
                     const yPos = height - totalBottomHeight - bottomOffset + (index * lineHeight);
@@ -261,9 +253,9 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 });
             }
             
-            // Part 4: Add branding text on overlay
+            // Part 4: Add branding text on overlay bar
             const brandingText = projectName ? `luna.fun/${projectName}` : "luna.fun";
-            const brandingFontSize = Math.max(24, Math.floor(fontSize * 0.8));
+            const brandingFontSize = Math.max(28, Math.floor(fontSize * 0.9)); // Large and prominent
             const brandingStrokeWidth = Math.max(2, Math.floor(brandingFontSize / 12));
             
             const brandingParams = [
@@ -278,18 +270,18 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             ].join(':');
 
             const escapedBrandingText = escapeTextSimple(brandingText);
-            const brandingX = overlayX + Math.floor(overlayWidth / 2);
-            const brandingY = overlayY + 20;
+            // Center branding text on the overlay bar
+            const brandingY = overlayY + Math.floor(overlayHeight / 2); // Vertically centered on overlay
             
             // Final text overlay - no output label (goes to output)
-            filterParts.push(`[${currentLabel}]drawtext=${brandingParams}:text='${escapedBrandingText}':x=${brandingX}-text_w/2:y=${brandingY}`);
+            filterParts.push(`[${currentLabel}]drawtext=${brandingParams}:text='${escapedBrandingText}':x=(w-text_w)/2:y=${brandingY}-text_h/2`);
             
             // Join all parts with semicolons
             const filterComplex = filterParts.join(';');
             
             console.log('🎬 Filter complex string:');
             console.log(filterComplex);
-            console.log(`📊 Branding "${brandingText}" at position x=${brandingX}, y=${brandingY}`);
+            console.log(`📊 Branding "${brandingText}" centered on overlay bar at y=${brandingY}`);
 
             // Execute FFmpeg
             ffmpeg(videoPath)
@@ -334,6 +326,7 @@ function escapeTextSimple(text) {
     text = text.replace(/:/g, '\\:');
     return text;
 }
+
 async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
     return new Promise(async (resolve, reject) => {
         try {
