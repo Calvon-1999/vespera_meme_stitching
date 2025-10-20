@@ -211,7 +211,12 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             // Position at bottom of video (centered horizontally, at bottom vertically)
             const overlayX = Math.floor((width - overlayWidth) / 2); // Center horizontally
             const overlayY = height - overlayHeight; // Bottom of video
-            console.log(`📍 Overlay position: x=${overlayX}, y=${overlayY} (centered at bottom)`);
+            console.log(`📍 Overlay position: x=${overlayX}, y=${overlayY} (full frame overlay)`);
+            
+            // Since blackbarLucien.png is full frame (1280x720), we need to calculate where
+            // the actual black bar portion is. Assuming the bar is at the bottom with some height.
+            // Let's estimate the black bar is about 80-100px tall at the bottom of the overlay image.
+            const estimatedBlackBarHeight = 100; // Adjust based on your actual image
 
             // Build filter_complex as a single string with semicolons
             let filterParts = [];
@@ -242,7 +247,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             // Bottom text - position right at the black bar (no gap)
             if (needsMemeText && bottomText && bottomLines.length > 0) {
                 const totalBottomHeight = bottomLines.length * lineHeight;
-                const bottomOffset = overlayHeight; // No gap - right at the black bar
+                const bottomOffset = estimatedBlackBarHeight; // Position above the black bar portion
                 bottomLines.forEach((line, index) => {
                     const escapedLine = escapeTextSimple(line);
                     const yPos = height - totalBottomHeight - bottomOffset + (index * lineHeight);
@@ -270,9 +275,11 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             ].join(':');
 
             const escapedBrandingText = escapeTextSimple(brandingText);
-            // Position at bottom-left corner
+            // Position at bottom-left corner (within the black bar area)
             const brandingX = 20; // 20px from left edge
-            const brandingY = height - brandingFontSize - 20; // 20px from bottom
+            const brandingY = height - brandingFontSize - 20; // 20px from actual bottom
+            
+            console.log(`📊 Bottom text will be positioned above black bar (estimated bar height: ${estimatedBlackBarHeight}px)`);
             
             // Final text overlay - no output label (goes to output)
             filterParts.push(`[${currentLabel}]drawtext=${brandingParams}:text='${escapedBrandingText}':x=${brandingX}:y=${brandingY}`);
