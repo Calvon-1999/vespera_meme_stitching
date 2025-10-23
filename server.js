@@ -259,7 +259,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             }
             
             // Part 4: Add branding text at bottom-left
-            const brandingText = projectName ? `luna.fun/memes/${projectName}` : "luna.fun/memes";
+            const brandingText = projectName ? `luna.fun/memes/${projectName}` : "luna.fun";
             const brandingFontSize = 18; // Smaller, fixed size
             const brandingStrokeWidth = 1;
             
