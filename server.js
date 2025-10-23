@@ -214,96 +214,111 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             console.log(`📍 Overlay position: x=${overlayX}, y=${overlayY} (full frame overlay)`);
             
             // Since blackbarLucien.png is full frame (1280x720), we need to calculate where
-            // the text should be positioned relative to the video frame
+            // the actual black bar portion is. Assuming the bar is at the bottom with some height.
+            // Let's estimate the black bar is about 80-100px tall at the bottom of the overlay image.
+            const estimatedBlackBarHeight = 100; // Adjust based on your actual image
+
+            // Build filter_complex as a single string with semicolons
+            let filterParts = [];
             
-            // Calculate branding text properties - smaller font for branding
-            const brandingFontSize = Math.floor(fontSize * 0.4); // 40% of meme text size
-            const brandingStrokeWidth = Math.max(1, Math.floor(brandingFontSize / 12));
+            // Part 1: Load overlay image (no scaling needed)
+            const escapedImagePath = OVERLAY_IMAGE_PATH.replace(/:/g, '\\:');
+            filterParts.push(`movie=${escapedImagePath}[ovr]`);
             
-            // DYNAMIC BOTTOM LEFT TEXT: Luna.fun/memes/{projectName}
-            // Sanitize project name for URL (remove spaces, special chars, convert to lowercase)
-            const sanitizedProjectName = projectName ? projectName.toLowerCase().replace(/[^a-z0-9-]/g, '') : 'default';
-            const bottomLeftText = `Luna.fun/memes/${sanitizedProjectName}`;
-            const escapedBottomLeftText = escapeForDrawtext(bottomLeftText);
+            // Part 2: Overlay image on video
+            filterParts.push(`[0:v][ovr]overlay=${overlayX}:${overlayY}[base]`);
             
-            console.log(`🔗 Bottom left branding: ${bottomLeftText}`);
+            // Part 3: Add all text layers
+            let currentLabel = 'base';
+            let labelCounter = 1;
+            
+            // Top text
+            if (needsMemeText && topText && topLines.length > 0) {
+                topLines.forEach((line, index) => {
+                    const escapedLine = escapeTextSimple(line);
+                    const yPos = verticalOffset + (index * lineHeight);
+                    const nextLabel = `txt${labelCounter}`;
+                    filterParts.push(`[${currentLabel}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}[${nextLabel}]`);
+                    currentLabel = nextLabel;
+                    labelCounter++;
+                });
+            }
+            
+            // Bottom text - position right at the black bar (no gap)
+            if (needsMemeText && bottomText && bottomLines.length > 0) {
+                const totalBottomHeight = bottomLines.length * lineHeight;
+                const bottomOffset = estimatedBlackBarHeight; // Position above the black bar portion
+                bottomLines.forEach((line, index) => {
+                    const escapedLine = escapeTextSimple(line);
+                    const yPos = height - totalBottomHeight - bottomOffset + (index * lineHeight);
+                    const nextLabel = `txt${labelCounter}`;
+                    filterParts.push(`[${currentLabel}]drawtext=${drawtextParams}:text='${escapedLine}':x=(w-text_w)/2:y=${yPos}[${nextLabel}]`);
+                    currentLabel = nextLabel;
+                    labelCounter++;
+                });
+            }
+            
+            // Part 4: Add branding text at bottom-left
+            const brandingText = projectName ? `luna.fun/memes/${projectName}` : "luna.fun";
+            const brandingFontSize = 18; // Smaller, fixed size
+            const brandingStrokeWidth = 1;
             
             const brandingParams = [
                 `fontfile='${escapedFontPath}'`,
                 `fontcolor=white`,
                 `fontsize=${brandingFontSize}`,
                 `bordercolor=black`,
-                `borderw=${brandingStrokeWidth}`
+                `borderw=${brandingStrokeWidth}`,
+                `shadowcolor=black@0.5`,
+                `shadowx=2`,
+                `shadowy=2`
             ].join(':');
+
+            const escapedBrandingText = escapeTextSimple(brandingText);
+            // Position at bottom-left corner (within the black bar area)
+            const brandingX = 20; // 20px from left edge
+            const brandingY = height - brandingFontSize - 20; // 20px from actual bottom
             
-            // Position branding text in bottom left corner of the video
-            // Add padding from edges
-            const brandingPaddingX = 15;
-            const brandingPaddingY = 15;
-            const brandingX = brandingPaddingX;
-            const brandingY = height - brandingPaddingY - brandingFontSize;
-
-            console.log(`📍 Branding text position: x=${brandingX}, y=${brandingY}`);
-
-            let filterComplex = `[0:v][1:v]overlay=${overlayX}:${overlayY}[v1]`;
+            console.log(`📊 Bottom text will be positioned above black bar (estimated bar height: ${estimatedBlackBarHeight}px)`);
             
-            // Add bottom left branding text (always present)
-            filterComplex += `;[v1]drawtext=${brandingParams}:text='${escapedBottomLeftText}':x=${brandingX}:y=${brandingY}[v2]`;
+            // Final text overlay - no output label (goes to output)
+            filterParts.push(`[${currentLabel}]drawtext=${brandingParams}:text='${escapedBrandingText}':x=${brandingX}:y=${brandingY}`);
             
-            let currentOutput = 'v2';
-            let outputIndex = 3;
+            // Join all parts with semicolons
+            const filterComplex = filterParts.join(';');
+            
+            console.log('🎬 Filter complex string:');
+            console.log(filterComplex);
+            console.log(`📊 Branding "${brandingText}" at bottom-left: x=${brandingX}, y=${brandingY}`);
 
-            // Add meme text if provided
-            if (needsMemeText) {
-                if (topText) {
-                    const escapedTopText = escapeForDrawtext(wrappedTopText);
-                    const topYPosition = verticalOffset;
-                    filterComplex += `;[${currentOutput}]drawtext=${drawtextParams}:text='${escapedTopText}':x=(w-text_w)/2:y=${topYPosition}[v${outputIndex}]`;
-                    currentOutput = `v${outputIndex}`;
-                    outputIndex++;
-                }
-
-                if (bottomText) {
-                    const escapedBottomText = escapeForDrawtext(wrappedBottomText);
-                    const bottomYPosition = height - (bottomLines.length * lineHeight) - verticalOffset - overlayHeight;
-                    filterComplex += `;[${currentOutput}]drawtext=${drawtextParams}:text='${escapedBottomText}':x=(w-text_w)/2:y=${bottomYPosition}[v${outputIndex}]`;
-                    currentOutput = `v${outputIndex}`;
-                }
-            }
-
-            console.log('🎬 Starting FFmpeg processing...');
-            console.log(`Filter complex: ${filterComplex}`);
-
+            // Execute FFmpeg
             ffmpeg(videoPath)
-                .input(OVERLAY_IMAGE_PATH)
-                .complexFilter(filterComplex)
                 .outputOptions([
-                    '-map', `[${currentOutput}]`,
-                    '-map', '0:a?',
+                    '-filter_complex', filterComplex,
                     '-c:v', 'libx264',
-                    '-preset', 'medium',
+                    '-preset', 'fast',
                     '-crf', '23',
                     '-c:a', 'copy'
                 ])
-                .output(outputPath)
                 .on('start', (cmd) => {
-                    console.log('🎥 FFmpeg command:', cmd);
+                    console.log('🎬 FFmpeg command:', cmd);
                 })
-                .on('progress', (progress) => {
-                    if (progress.percent) {
-                        console.log(`⏳ Progress: ${progress.percent.toFixed(1)}%`);
+                .on('stderr', (line) => {
+                    // Only log errors
+                    if (line.includes('Error') || line.includes('Invalid') || line.includes('Cannot find')) {
+                        console.error('⚠️ FFmpeg:', line);
                     }
                 })
-                .on('end', () => {
-                    console.log('✅ Text overlay complete');
-                    resolve();
-                })
-                .on('error', (err, stdout, stderr) => {
+                .on('error', (err) => {
                     console.error('❌ FFmpeg error:', err.message);
-                    console.error('FFmpeg stderr:', stderr);
                     reject(err);
                 })
-                .run();
+                .on('end', () => {
+                    console.log('✅ Video processing complete with overlay and branding');
+                    resolve();
+                })
+                .save(outputPath);
+
         } catch (err) {
             console.error('❌ Error in addMemeText:', err);
             reject(err);
@@ -311,134 +326,144 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
     });
 }
 
+// Helper function to escape text for FFmpeg
+function escapeTextSimple(text) {
+    if (!text) return '';
+    text = text.replace(/\\/g, '\\\\');
+    text = text.replace(/'/g, "'\\\\''");
+    text = text.replace(/:/g, '\\:');
+    return text;
+}
+
 async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
     return new Promise(async (resolve, reject) => {
         try {
-            console.log('🎵 Starting audio mixing...');
-            
-            const videoDuration = await getAudioDuration(videoPath);
-            console.log(`📊 Video duration: ${videoDuration}s`);
+            console.log('🎵 Starting audio mix...');
+            const cmd = ffmpeg(videoPath);
 
-            const command = ffmpeg(videoPath);
-            const filterParts = [];
-            const inputMappings = ['0:v'];
-            let audioInputIndex = 1;
-
-            if (dialoguePath) {
-                console.log('🎤 Adding dialogue track');
-                command.input(dialoguePath);
-                const dialogueDuration = await getAudioDuration(dialoguePath);
-                
-                if (dialogueDuration < videoDuration) {
-                    const loopCount = Math.ceil(videoDuration / dialogueDuration);
-                    filterParts.push(`[${audioInputIndex}:a]aloop=loop=${loopCount}:size=${Math.ceil(dialogueDuration * 48000)}[dialogue]`);
-                } else {
-                    filterParts.push(`[${audioInputIndex}:a]atrim=duration=${videoDuration}[dialogue]`);
-                }
-                audioInputIndex++;
-            }
-
-            if (musicPath) {
-                console.log('🎶 Adding music track');
-                command.input(musicPath);
-                const musicDuration = await getAudioDuration(musicPath);
-                
-                if (musicDuration < videoDuration) {
-                    const loopCount = Math.ceil(videoDuration / musicDuration);
-                    filterParts.push(`[${audioInputIndex}:a]aloop=loop=${loopCount}:size=${Math.ceil(musicDuration * 48000)},volume=0.3[music]`);
-                } else {
-                    filterParts.push(`[${audioInputIndex}:a]atrim=duration=${videoDuration},volume=0.3[music]`);
-                }
-            }
-
+            // Both dialogue and music - replace video audio with new audio
             if (dialoguePath && musicPath) {
-                filterParts.push('[dialogue][music]amix=inputs=2:duration=first[aout]');
-                inputMappings.push('[aout]');
-            } else if (dialoguePath) {
-                inputMappings.push('[dialogue]');
-            } else if (musicPath) {
-                inputMappings.push('[music]');
+                console.log('🎙️  Mixing dialogue + music (replacing original audio)');
+                const musicDuration = await getAudioDuration(musicPath);
+                const fadeInDuration = 2.5;
+                const fadeOutDuration = 2.5;
+                const fadeOutStart = musicDuration - fadeOutDuration;
+
+                cmd.input(dialoguePath);
+                cmd.input(musicPath);
+
+                const complexFilter = [
+                    "[1:a]volume=1.0[dialogue]",
+                    `[2:a]afade=t=in:st=0:d=${fadeInDuration},afade=t=out:st=${fadeOutStart}:d=${fadeOutDuration},volume=0.85[music]`,
+                    "[dialogue][music]amix=inputs=2:duration=longest[aout]"
+                ];
+
+                cmd.complexFilter(complexFilter)
+                    .outputOptions([
+                        "-map 0:v",      // Map video from input 0
+                        "-map [aout]",   // Map mixed audio (ignoring original video audio)
+                        "-c:v copy",
+                        "-c:a aac",
+                        "-shortest"
+                    ]);
+            }
+            // Dialogue only - replace video audio with dialogue
+            else if (dialoguePath && !musicPath) {
+                console.log('🎙️  Adding dialogue only (replacing original audio)');
+                cmd.input(dialoguePath);
+                cmd.outputOptions([
+                    "-map 0:v",      // Map video from input 0
+                    "-map 1:a",      // Map audio from input 1 (dialogue) - ignoring original
+                    "-c:v copy",
+                    "-c:a aac"
+                ]);
+            }
+            // Music only - replace video audio with music
+            else if (!dialoguePath && musicPath) {
+                console.log('🎵 Replacing original audio with music');
+                const musicDuration = await getAudioDuration(musicPath);
+                const fadeInDuration = 2.5;
+                const fadeOutDuration = 2.5;
+                const fadeOutStart = musicDuration - fadeOutDuration;
+
+                cmd.input(musicPath);
+
+                const complexFilter = [
+                    `[1:a]afade=t=in:st=0:d=${fadeInDuration},afade=t=out:st=${fadeOutStart}:d=${fadeOutDuration},volume=0.85[aout]`
+                ];
+
+                cmd.complexFilter(complexFilter)
+                    .outputOptions([
+                        "-map 0:v",      // Map video from input 0
+                        "-map [aout]",   // Map processed music (ignoring original video audio)
+                        "-c:v copy",
+                        "-c:a aac",
+                        "-shortest"
+                    ]);
+            }
+            // No new audio - keep original video audio
+            else {
+                console.log('📦 No new audio - keeping original video audio');
+                cmd.outputOptions([
+                    "-c:v copy",
+                    "-c:a copy"
+                ]);
             }
 
-            const filterComplex = filterParts.join(';');
-            console.log(`🎛️  Filter complex: ${filterComplex}`);
-
-            command
-                .complexFilter(filterComplex)
-                .outputOptions([
-                    '-map', inputMappings[0],
-                    '-map', inputMappings[1],
-                    '-c:v', 'copy',
-                    '-c:a', 'aac',
-                    '-b:a', '192k',
-                    '-shortest'
-                ])
-                .output(outputPath)
-                .on('start', (cmd) => {
-                    console.log('🎥 FFmpeg command:', cmd);
+            cmd.save(outputPath)
+                .on("start", (cmd) => {
+                    console.log('🎬 Audio mix command:', cmd);
                 })
-                .on('progress', (progress) => {
-                    if (progress.percent) {
-                        console.log(`⏳ Mixing progress: ${progress.percent.toFixed(1)}%`);
-                    }
-                })
-                .on('end', () => {
-                    console.log('✅ Audio mixing complete');
+                .on("end", () => {
+                    console.log('✅ Audio processing complete');
                     resolve();
                 })
-                .on('error', (err, stdout, stderr) => {
-                    console.error('❌ FFmpeg mixing error:', err.message);
-                    console.error('FFmpeg stderr:', stderr);
+                .on("error", (err) => {
+                    console.error('❌ Audio processing error:', err);
                     reject(err);
-                })
-                .run();
-
+                });
         } catch (err) {
-            console.error('❌ Error in mixVideo:', err);
             reject(err);
         }
     });
 }
 
-// ==================== BACKEND API ENDPOINTS ====================
+// ==================== API ENDPOINTS ====================
 
 app.get("/health", (req, res) => {
-    res.json({ 
-        status: "ok", 
-        message: "Video processing server is running",
-        font_available: fs.existsSync(CUSTOM_FONT_PATH),
-        overlay_available: fs.existsSync(OVERLAY_IMAGE_PATH)
-    });
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-app.post("/stitch", async (req, res) => {
+app.post("/api/combine", async (req, res) => {
     const startTime = Date.now();
-    
     console.log('\n========================================');
-    console.log('📥 NEW REQUEST RECEIVED');
-    console.log('Timestamp:', new Date().toISOString());
-    console.log('Request body keys:', Object.keys(req.body));
+    console.log('🚀 NEW REQUEST RECEIVED');
+    console.log('========================================');
     
     try {
         await ensureDirectories();
-
-        const { 
+        
+        const {
             final_stitched_video,
             final_dialogue,
             final_music_url,
+            response_modality,
             meme_top_text,
             meme_bottom_text,
             meme_project_name
         } = req.body;
 
-        console.log('\n📋 Request Details:');
-        console.log('   Video URL:', final_stitched_video ? '✅' : '❌');
-        console.log('   Dialogue URL:', final_dialogue ? '✅' : '❌');
-        console.log('   Music URL:', final_music_url ? '✅' : '❌');
-        console.log('   Top Text:', meme_top_text || '(none)');
-        console.log('   Bottom Text:', meme_bottom_text || '(none)');
-        console.log('   Project Name:', meme_project_name || '(none)');
+        // Log received parameters
+        console.log('📋 Request Parameters:');
+        console.log('   Video URL:', final_stitched_video ? '✓' : '✗');
+        console.log('   Dialogue URL:', final_dialogue ? '✓' : '✗');
+        console.log('   Music URL:', final_music_url ? '✓' : '✗');
+        console.log('   Response Modality:', response_modality);
+        console.log('   Meme Top Text:', meme_top_text);
+        console.log('   Meme Bottom Text:', meme_bottom_text);
+        console.log('   Project Name:', meme_project_name);
 
+        // Validate video URL
         if (!final_stitched_video) {
             console.error('❌ Missing video URL');
             return res.status(400).json({ error: "Missing required input: final_stitched_video" });
