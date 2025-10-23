@@ -335,6 +335,8 @@ function escapeTextSimple(text) {
     return text;
 }
 
+// FIXED VERSION - Replace your mixVideo function with this:
+
 async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
     return new Promise(async (resolve, reject) => {
         try {
@@ -352,6 +354,7 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
                 cmd.input(dialoguePath);
                 cmd.input(musicPath);
 
+                // FIX: Use proper filter syntax without extra quotes
                 const complexFilter = [
                     "[1:a]volume=1.0[dialogue]",
                     `[2:a]afade=t=in:st=0:d=${fadeInDuration},afade=t=out:st=${fadeOutStart}:d=${fadeOutDuration},volume=0.85[music]`,
@@ -360,10 +363,10 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
 
                 cmd.complexFilter(complexFilter)
                     .outputOptions([
-                        "-map 0:v",      // Map video from input 0
-                        "-map [aout]",   // Map mixed audio (ignoring original video audio)
-                        "-c:v copy",
-                        "-c:a aac",
+                        "-map", "0:v",      // Map video from input 0
+                        "-map", "[aout]",   // Map mixed audio
+                        "-c:v", "copy",
+                        "-c:a", "aac",
                         "-shortest"
                     ]);
             }
@@ -372,10 +375,10 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
                 console.log('🎙️  Adding dialogue only (replacing original audio)');
                 cmd.input(dialoguePath);
                 cmd.outputOptions([
-                    "-map 0:v",      // Map video from input 0
-                    "-map 1:a",      // Map audio from input 1 (dialogue) - ignoring original
-                    "-c:v copy",
-                    "-c:a aac"
+                    "-map", "0:v",      // Map video from input 0
+                    "-map", "1:a",      // Map audio from input 1 (dialogue)
+                    "-c:v", "copy",
+                    "-c:a", "aac"
                 ]);
             }
             // Music only - replace video audio with music
@@ -388,16 +391,18 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
 
                 cmd.input(musicPath);
 
+                // FIX: This is the line causing your error - the filter syntax was correct,
+                // but the way outputOptions handles the -map parameter needs fixing
                 const complexFilter = [
                     `[1:a]afade=t=in:st=0:d=${fadeInDuration},afade=t=out:st=${fadeOutStart}:d=${fadeOutDuration},volume=0.85[aout]`
                 ];
 
                 cmd.complexFilter(complexFilter)
                     .outputOptions([
-                        "-map 0:v",      // Map video from input 0
-                        "-map [aout]",   // Map processed music (ignoring original video audio)
-                        "-c:v copy",
-                        "-c:a aac",
+                        "-map", "0:v",      // SPLIT into separate array elements
+                        "-map", "[aout]",   // SPLIT into separate array elements
+                        "-c:v", "copy",
+                        "-c:a", "aac",
                         "-shortest"
                     ]);
             }
@@ -405,8 +410,8 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
             else {
                 console.log('📦 No new audio - keeping original video audio');
                 cmd.outputOptions([
-                    "-c:v copy",
-                    "-c:a copy"
+                    "-c:v", "copy",
+                    "-c:a", "copy"
                 ]);
             }
 
@@ -427,7 +432,6 @@ async function mixVideo(videoPath, dialoguePath, musicPath, outputPath) {
         }
     });
 }
-
 // ==================== API ENDPOINTS ====================
 
 app.get("/health", (req, res) => {
