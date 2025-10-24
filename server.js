@@ -467,7 +467,8 @@ app.get("/health", (req, res) => {
     res.json({ status: "healthy", timestamp: new Date().toISOString() });
 });
 
-app.post("/process-video", async (req, res) => {
+// Main processing function (used by both endpoints)
+async function processVideoRequest(req, res) {
     const startTime = Date.now();
     console.log('\n========================================');
     console.log('🎬 NEW VIDEO PROCESSING REQUEST');
@@ -594,7 +595,11 @@ app.post("/process-video", async (req, res) => {
             details: err.message 
         });
     }
-});
+}
+
+// Endpoint routes - both point to the same handler
+app.post("/process-video", processVideoRequest);
+app.post("/api/combine", processVideoRequest); // Backward compatibility alias
 
 // ==================== FRONTEND API ENDPOINTS ====================
 
