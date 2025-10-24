@@ -267,6 +267,157 @@ function escapeForDrawtext(text) {
     return escaped;
 }
 
+/**
+ * Adds only the top and bottom meme text to video (no overlay, no branding)
+ * Used for the "without overlay" version
+ */
+async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText = "", memeLanguage = null) {
+    return new Promise(async (resolve, reject) => {
+        try {
+            console.log('🎨 addMemeTextOnly function called (no overlay/branding)');
+            
+            if (!topText && !bottomText) {
+                console.log('⚠️  No meme text provided - copying video as-is');
+                await fsp.copyFile(videoPath, outputPath);
+                return resolve(outputPath);
+            }
+
+            const { width, height } = await getVideoDimensions(videoPath);
+            console.log(`📐 Video dimensions: ${width}x${height}`);
+
+            const wrappedTopText = wrapText(topText, 45);
+            const wrappedBottomText = wrapText(bottomText, 45);
+            
+            const topLines = wrappedTopText.split('\n').filter(line => line.trim());
+            const bottomLines = wrappedBottomText.split('\n').filter(line => line.trim());
+            const maxLines = Math.max(topLines.length, bottomLines.length, 1);
+            
+            const baseDivisor = 12;
+            const verticalCompressionFactor = 2;
+            const dynamicDivisor = baseDivisor + ((maxLines - 1) * verticalCompressionFactor);
+            
+            const fontSize = Math.floor(height / dynamicDivisor);
+            const strokeWidth = Math.max(2, Math.floor(fontSize / 10));
+            const lineHeight = fontSize + 5;
+            const verticalOffset = 20;
+            
+            console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
+
+            // Select font based on language
+            let selectedFont;
+            if (memeLanguage && FONTS[memeLanguage.toLowerCase()]) {
+                selectedFont = FONTS[memeLanguage.toLowerCase()];
+                console.log(`🔤 Using provided language font: ${memeLanguage}`);
+            } else {
+                const textToDetect = topText || bottomText || '';
+                selectedFont = textToDetect ? getFontForText(textToDetect, null) : FONTS.english;
+                console.log(`🔤 Auto-detecting font from text content`);
+            }
+            
+            const escapedFont = selectedFont.replace(/:/g, '\\:');
+
+            // Build filter complex
+            let filterParts = [];
+            let currentVideoLabel = '0:v';
+            let labelCounter = 1;
+
+            // Add TOP text
+            if (topText) {
+                for (let index = 0; index < topLines.length; index++) {
+                    const line = topLines[index];
+                    const escapedLine = escapeForDrawtext(line);
+                    const yPos = verticalOffset + (index * lineHeight);
+                    const nextLabel = `v${labelCounter}`;
+                    
+                    filterParts.push(
+                        `[${currentVideoLabel}]drawtext=fontfile='${escapedFont}':` +
+                        `text='${escapedLine}':` +
+                        `fontcolor=white:` +
+                        `fontsize=${fontSize}:` +
+                        `bordercolor=black:` +
+                        `borderw=${strokeWidth}:` +
+                        `shadowcolor=black@0.5:` +
+                        `shadowx=2:` +
+                        `shadowy=2:` +
+                        `x=(w-text_w)/2:` +
+                        `y=${yPos}[${nextLabel}]`
+                    );
+                    
+                    currentVideoLabel = nextLabel;
+                    labelCounter++;
+                }
+            }
+
+            // Add BOTTOM text
+            if (bottomText) {
+                for (let index = 0; index < bottomLines.length; index++) {
+                    const line = bottomLines[index];
+                    const escapedLine = escapeForDrawtext(line);
+                    const yPos = height - verticalOffset - ((bottomLines.length - index) * lineHeight);
+                    const nextLabel = `v${labelCounter}`;
+                    
+                    filterParts.push(
+                        `[${currentVideoLabel}]drawtext=fontfile='${escapedFont}':` +
+                        `text='${escapedLine}':` +
+                        `fontcolor=white:` +
+                        `fontsize=${fontSize}:` +
+                        `bordercolor=black:` +
+                        `borderw=${strokeWidth}:` +
+                        `shadowcolor=black@0.5:` +
+                        `shadowx=2:` +
+                        `shadowy=2:` +
+                        `x=(w-text_w)/2:` +
+                        `y=${yPos}[${nextLabel}]`
+                    );
+                    
+                    currentVideoLabel = nextLabel;
+                    labelCounter++;
+                }
+            }
+
+            const filterComplex = filterParts.join(';');
+            console.log(`🎬 Filter complex parts: ${filterParts.length}`);
+
+            ffmpeg(videoPath)
+                .complexFilter(filterComplex)
+                .outputOptions([
+                    '-map', `[${currentVideoLabel}]`,
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '18',
+                    '-c:a', 'copy'
+                ])
+                .output(outputPath)
+                .on('start', (cmd) => {
+                    console.log('🚀 FFmpeg started (text only)');
+                })
+                .on('stderr', (stderrLine) => {
+                    if (stderrLine.includes('Error') || stderrLine.includes('Invalid')) {
+                        console.error('FFmpeg stderr:', stderrLine);
+                    }
+                })
+                .on('progress', (progress) => {
+                    if (progress.percent) {
+                        console.log(`⏳ Progress: ${progress.percent.toFixed(1)}%`);
+                    }
+                })
+                .on('end', () => {
+                    console.log('✅ Meme text added successfully (no overlay)');
+                    resolve(outputPath);
+                })
+                .on('error', (err) => {
+                    console.error('❌ FFmpeg error:', err.message);
+                    reject(err);
+                })
+                .run();
+
+        } catch (err) {
+            console.error('❌ Error in addMemeTextOnly:', err);
+            reject(err);
+        }
+    });
+}
+
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "", projectName = "", memeLanguage = null) {
     return new Promise(async (resolve, reject) => {
         try {
@@ -648,6 +799,7 @@ async function processVideoRequest(req, res) {
         const dialoguePath = final_dialogue ? path.join(TEMP_DIR, `${id}_dialogue.mp3`) : null;
         const musicPath = final_music_url ? path.join(TEMP_DIR, `${id}_music.mp3`) : null;
         const videoWithTextPath = path.join(TEMP_DIR, `${id}_with_text.mp4`);
+        const videoWithTextNoOverlayPath = path.join(TEMP_DIR, `${id}_with_text_no_overlay.mp4`);
         const outputPathWithOverlay = path.join(OUTPUT_DIR, `${id}_with_overlay.mp4`);
         const outputPathWithoutOverlay = path.join(OUTPUT_DIR, `${id}_without_overlay.mp4`);
 
@@ -673,16 +825,28 @@ async function processVideoRequest(req, res) {
         // Generate both versions: with and without overlay
         console.log('\n🎬 Generating both versions...');
         
-        // Version 1: Without overlay (original video)
-        if (final_dialogue || final_music_url) {
-            console.log('📦 Creating version without overlay...');
-            await mixVideo(videoPath, dialoguePath, musicPath, outputPathWithoutOverlay);
+        // Version 1: Without overlay - add meme text only (no overlay, no branding)
+        const videoWithTextNoOverlayPath = path.join(TEMP_DIR, `${id}_with_text_no_overlay.mp4`);
+        
+        if (needsMemeText) {
+            console.log('📦 Creating version without overlay (with meme text)...');
+            await addMemeTextOnly(videoPath, videoWithTextNoOverlayPath, meme_top_text, meme_bottom_text, meme_language);
+            
+            if (final_dialogue || final_music_url) {
+                await mixVideo(videoWithTextNoOverlayPath, dialoguePath, musicPath, outputPathWithoutOverlay);
+            } else {
+                await fsp.copyFile(videoWithTextNoOverlayPath, outputPathWithoutOverlay);
+            }
         } else {
-            console.log('📦 Creating version without overlay (no audio mixing)...');
-            await fsp.copyFile(videoPath, outputPathWithoutOverlay);
+            console.log('📦 Creating version without overlay (no meme text)...');
+            if (final_dialogue || final_music_url) {
+                await mixVideo(videoPath, dialoguePath, musicPath, outputPathWithoutOverlay);
+            } else {
+                await fsp.copyFile(videoPath, outputPathWithoutOverlay);
+            }
         }
 
-        // Version 2: With overlay (always create this version with branding)
+        // Version 2: With overlay (meme text + overlay + branding)
         console.log('🎨 Creating version with overlay and branding...');
         await addMemeText(videoPath, videoWithTextPath, meme_top_text, meme_bottom_text, meme_project_name, meme_language);
         
@@ -698,7 +862,10 @@ async function processVideoRequest(req, res) {
             await fsp.unlink(videoPath);
             if (dialoguePath) await fsp.unlink(dialoguePath);
             if (musicPath) await fsp.unlink(musicPath);
-            if (needsMemeText) await fsp.unlink(videoWithTextPath);
+            if (needsMemeText) {
+                await fsp.unlink(videoWithTextPath);
+                await fsp.unlink(videoWithTextNoOverlayPath);
+            }
         } catch (cleanupErr) {
             console.warn('⚠️  Cleanup warning:', cleanupErr.message);
         }
