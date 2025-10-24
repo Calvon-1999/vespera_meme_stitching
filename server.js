@@ -298,13 +298,21 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
 
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
-            // Detect language and get appropriate font for top and bottom text
-            // Use provided language if available, otherwise auto-detect
-            const topTextFont = topText ? getFontForText(topText, memeLanguage) : FONTS.english;
-            const bottomTextFont = bottomText ? getFontForText(bottomText, memeLanguage) : FONTS.english;
+            // Use the same font for ALL text (top, bottom, and branding) based on language parameter
+            // If language is provided, use that font for everything
+            // Otherwise, auto-detect from the text content
+            let selectedFont;
+            if (memeLanguage && FONTS[memeLanguage.toLowerCase()]) {
+                selectedFont = FONTS[memeLanguage.toLowerCase()];
+                console.log(`🔤 Using provided language font for all text: ${memeLanguage}`);
+            } else {
+                // Auto-detect from text content (fallback)
+                const textToDetect = topText || bottomText || '';
+                selectedFont = textToDetect ? getFontForText(textToDetect, null) : FONTS.english;
+                console.log(`🔤 Auto-detecting font from text content`);
+            }
             
-            const escapedTopTextFont = topTextFont.replace(/:/g, '\\:');
-            const escapedBottomTextFont = bottomTextFont.replace(/:/g, '\\:');
+            const escapedFont = selectedFont.replace(/:/g, '\\:');
 
             // Check if overlay image exists
             console.log(`🔍 Checking for overlay image at: ${OVERLAY_IMAGE_PATH}`);
@@ -330,7 +338,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             
             // Calculate text position within the overlay (adjusting for overlay position)
             const brandingFontSize = 24;
-            const brandingY = overlayY + 40; // Moved down by 30 pixels from original (10 -> 40)
+            const brandingY = overlayY + 10; // Original position
             
             const escapedProjectName = escapeForDrawtext(projectName);
             console.log(`📝 Project name for branding: ${projectName}`);
@@ -358,7 +366,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                         const nextLabel = `v${labelCounter}`;
                         
                         filterParts.push(
-                            `[${currentVideoLabel}]drawtext=fontfile='${escapedTopTextFont}':` +
+                            `[${currentVideoLabel}]drawtext=fontfile='${escapedFont}':` +
                             `text='${escapedLine}':` +
                             `fontcolor=white:` +
                             `fontsize=${fontSize}:` +
@@ -385,7 +393,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                         const nextLabel = `v${labelCounter}`;
                         
                         filterParts.push(
-                            `[${currentVideoLabel}]drawtext=fontfile='${escapedBottomTextFont}':` +
+                            `[${currentVideoLabel}]drawtext=fontfile='${escapedFont}':` +
                             `text='${escapedLine}':` +
                             `fontcolor=white:` +
                             `fontsize=${fontSize}:` +
@@ -404,13 +412,12 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 }
             }
 
-            // Add project name/branding (always shown)
+            // Add project name/branding (always shown) - use same font as all text
             if (projectName) {
-                const escapedBrandingFont = FONTS.english.replace(/:/g, '\\:');
                 const nextLabel = `vout`;
                 
                 filterParts.push(
-                    `[${currentVideoLabel}]drawtext=fontfile='${escapedBrandingFont}':` +
+                    `[${currentVideoLabel}]drawtext=fontfile='${escapedFont}':` +
                     `text='${escapedProjectName}':` +
                     `fontcolor=white:` +
                     `fontsize=${brandingFontSize}:` +
