@@ -186,50 +186,85 @@ async function getImageDimensions(filepath) {
 
 /**
  * Wraps text by inserting newlines to prevent excessive width
+ * Handles both Latin and CJK characters appropriately
  */
 function wrapText(text, maxCharsPerLine = 30) {
     if (!text) return '';
     
-    const words = text.split(' ');
-    let wrappedText = '';
-    let currentLineLength = 0;
-
-    for (const word of words) {
-        if (currentLineLength + word.length + 1 > maxCharsPerLine) {
-            wrappedText += '\n' + word + ' ';
-            currentLineLength = word.length + 1;
-        } else {
-            wrappedText += word + ' ';
-            currentLineLength += word.length + 1;
-        }
-    }
+    // Check if text contains significant CJK characters
+    const cjkCount = (text.match(/[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/g) || []).length;
+    const hasCJK = cjkCount > text.length * 0.3;
     
-    return wrappedText.trim();
+    if (hasCJK) {
+        // For CJK text, wrap at character boundaries (CJK chars are wider)
+        const adjustedMax = Math.floor(maxCharsPerLine * 0.6); // CJK chars are ~2x wider
+        let result = '';
+        let currentLength = 0;
+        
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            const isCJK = /[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/.test(char);
+            const charWidth = isCJK ? 2 : 1;
+            
+            if (currentLength + charWidth > adjustedMax && currentLength > 0) {
+                result += '\n';
+                currentLength = 0;
+            }
+            
+            result += char;
+            currentLength += charWidth;
+        }
+        
+        return result.trim();
+    } else {
+        // For Latin text, wrap at word boundaries
+        const words = text.split(' ');
+        let wrappedText = '';
+        let currentLineLength = 0;
+
+        for (const word of words) {
+            if (currentLineLength + word.length + 1 > maxCharsPerLine && currentLineLength > 0) {
+                wrappedText += '\n' + word + ' ';
+                currentLineLength = word.length + 1;
+            } else {
+                wrappedText += word + ' ';
+                currentLineLength += word.length + 1;
+            }
+        }
+        
+        return wrappedText.trim();
+    }
 }
 
 /**
  * Escapes text for FFmpeg drawtext filter
- * Uses a careful approach to handle all special characters
+ * Handles special characters, emojis, and Unicode safely
  */
 function escapeForDrawtext(text) {
     if (!text) return '';
     
-    // Replace each character that needs escaping
-    // Order is critical: do NOT escape backslashes first or you'll double-escape
+    // First pass: handle basic escaping
+    let escaped = text;
     
-    // First, handle newlines by converting to a sequence FFmpeg understands
-    text = text.replace(/\n/g, '\n'); // Keep as literal newline for now
+    // Escape backslashes first (before other escapes that introduce backslashes)
+    escaped = escaped.replace(/\\/g, '\\\\\\\\');
     
-    // Escape characters that have special meaning in FFmpeg drawtext
-    // We need to escape: ' : \ [ ] ; ,
-    text = text.replace(/\\/g, '\\\\');      // Backslash
-    text = text.replace(/'/g, "'\\\\''");    // Single quote (replace with '\'' which ends quote, adds escaped quote, starts quote)
-    text = text.replace(/:/g, '\\:');        // Colon
+    // Escape single quotes for FFmpeg shell
+    escaped = escaped.replace(/'/g, "'\\\\\\\\''");
     
-    // NOW handle newlines - replace actual newline chars with \n sequence
-    text = text.replace(/\n/g, '\\n');
+    // Escape colons (FFmpeg parameter separator)
+    escaped = escaped.replace(/:/g, '\\\\:');
     
-    return text;
+    // Escape special FFmpeg characters
+    escaped = escaped.replace(/\[/g, '\\\\[');
+    escaped = escaped.replace(/\]/g, '\\\\]');
+    escaped = escaped.replace(/,/g, '\\\\,');
+    escaped = escaped.replace(/;/g, '\\\\;');
+    
+    // Handle newlines last - convert to FFmpeg newline sequence
+    escaped = escaped.replace(/\n/g, '\\n');
+    
+    return escaped;
 }
 
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "", projectName = "", memeLanguage = null) {
@@ -332,6 +367,10 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             }
 
             console.log(`🎬 Filter complex: ${filterComplex.substring(0, 200)}...`);
+            
+            // Log the escaped text for debugging
+            if (topText) console.log(`📝 Top text (escaped): ${wrappedTopText.substring(0, 100)}`);
+            if (bottomText) console.log(`📝 Bottom text (escaped): ${wrappedBottomText.substring(0, 100)}`);
 
             ffmpeg(videoPath)
                 .complexFilter(filterComplex)
@@ -342,7 +381,16 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                     '-c:a copy'
                 ])
                 .output(outputPath)
-                .on('start', (cmd) => console.log('🚀 FFmpeg started:', cmd.substring(0, 300) + '...'))
+                .on('start', (cmd) => {
+                    console.log('🚀 FFmpeg started');
+                    console.log('Full command:', cmd);
+                })
+                .on('stderr', (stderrLine) => {
+                    // Log FFmpeg errors for debugging
+                    if (stderrLine.includes('Error') || stderrLine.includes('Invalid')) {
+                        console.error('FFmpeg stderr:', stderrLine);
+                    }
+                })
                 .on('progress', (progress) => {
                     if (progress.percent) {
                         console.log(`⏳ Progress: ${progress.percent.toFixed(1)}%`);
