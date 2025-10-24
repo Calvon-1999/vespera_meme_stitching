@@ -407,14 +407,26 @@ async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
             }
 
             if (filterInputs.length > 0) {
-                const audioFilters = filterInputs.map((input, idx) => {
-                    if (idx === filterInputs.length - 1 && hasMusic) {
-                        return `${input}volume=0.3`;
+                if (filterInputs.length === 1) {
+                    // Single audio input - no need for amerge
+                    if (hasMusic) {
+                        // Just apply volume to music
+                        filterComplex = `${filterInputs[0]}volume=0.3[outa]`;
+                    } else {
+                        // Just use the audio as-is
+                        filterComplex = `${filterInputs[0]}acopy[outa]`;
                     }
-                    return input;
-                }).join('');
+                } else {
+                    // Multiple audio inputs - use amerge
+                    const audioFilters = filterInputs.map((input, idx) => {
+                        if (idx === filterInputs.length - 1 && hasMusic) {
+                            return `${input}volume=0.3`;
+                        }
+                        return input;
+                    }).join('');
 
-                filterComplex = `${audioFilters}amerge=inputs=${filterInputs.length}[outa]`;
+                    filterComplex = `${audioFilters}amerge=inputs=${filterInputs.length}[outa]`;
+                }
                 outputMap = '[outv];[outa]';
             }
 
