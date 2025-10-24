@@ -826,8 +826,6 @@ async function processVideoRequest(req, res) {
         console.log('\n🎬 Generating both versions...');
         
         // Version 1: Without overlay - add meme text only (no overlay, no branding)
-        const videoWithTextNoOverlayPath = path.join(TEMP_DIR, `${id}_with_text_no_overlay.mp4`);
-        
         if (needsMemeText) {
             console.log('📦 Creating version without overlay (with meme text)...');
             await addMemeTextOnly(videoPath, videoWithTextNoOverlayPath, meme_top_text, meme_bottom_text, meme_language);
