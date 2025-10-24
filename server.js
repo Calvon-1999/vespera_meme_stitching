@@ -335,50 +335,110 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const escapedProjectName = escapeForDrawtext(projectName);
             console.log(`📝 Project name for branding: ${projectName}`);
 
-            let filterComplex = `[0:v]movie='${OVERLAY_IMAGE_PATH.replace(/'/g, "'\\\\''").replace(/:/g, '\\:')}' [overlay]; [0:v][overlay]overlay=${overlayX}:${overlayY}`;
+            // Build filter complex step by step
+            let filterParts = [];
+            
+            // Step 1: Load overlay image as a separate input
+            filterParts.push(`movie='${OVERLAY_IMAGE_PATH.replace(/'/g, "'\\\\''").replace(/:/g, '\\:')}'[overlay]`);
+            
+            // Step 2: Overlay the image on the video
+            filterParts.push(`[0:v][overlay]overlay=${overlayX}:${overlayY}[v1]`);
+            
+            let currentVideoLabel = 'v1';
+            let labelCounter = 2;
 
             // Only add meme text if provided
             if (needsMemeText) {
                 // Add TOP text
                 if (topText) {
-                    const topTextFilters = topLines.map((line, index) => {
+                    for (let index = 0; index < topLines.length; index++) {
+                        const line = topLines[index];
                         const escapedLine = escapeForDrawtext(line);
                         const yPos = verticalOffset + (index * lineHeight);
-                        return `drawtext=fontfile='${escapedTopTextFont}':text='${escapedLine}':fontcolor=white:fontsize=${fontSize}:bordercolor=black:borderw=${strokeWidth}:shadowcolor=black@0.5:shadowx=2:shadowy=2:x=(w-text_w)/2:y=${yPos}`;
-                    }).join(',');
-                    filterComplex += `,${topTextFilters}`;
+                        const nextLabel = `v${labelCounter}`;
+                        
+                        filterParts.push(
+                            `[${currentVideoLabel}]drawtext=fontfile='${escapedTopTextFont}':` +
+                            `text='${escapedLine}':` +
+                            `fontcolor=white:` +
+                            `fontsize=${fontSize}:` +
+                            `bordercolor=black:` +
+                            `borderw=${strokeWidth}:` +
+                            `shadowcolor=black@0.5:` +
+                            `shadowx=2:` +
+                            `shadowy=2:` +
+                            `x=(w-text_w)/2:` +
+                            `y=${yPos}[${nextLabel}]`
+                        );
+                        
+                        currentVideoLabel = nextLabel;
+                        labelCounter++;
+                    }
                 }
 
                 // Add BOTTOM text
                 if (bottomText) {
-                    const bottomTextFilters = bottomLines.map((line, index) => {
+                    for (let index = 0; index < bottomLines.length; index++) {
+                        const line = bottomLines[index];
                         const escapedLine = escapeForDrawtext(line);
                         const yPos = height - verticalOffset - ((bottomLines.length - index) * lineHeight);
-                        return `drawtext=fontfile='${escapedBottomTextFont}':text='${escapedLine}':fontcolor=white:fontsize=${fontSize}:bordercolor=black:borderw=${strokeWidth}:shadowcolor=black@0.5:shadowx=2:shadowy=2:x=(w-text_w)/2:y=${yPos}`;
-                    }).join(',');
-                    filterComplex += `,${bottomTextFilters}`;
+                        const nextLabel = `v${labelCounter}`;
+                        
+                        filterParts.push(
+                            `[${currentVideoLabel}]drawtext=fontfile='${escapedBottomTextFont}':` +
+                            `text='${escapedLine}':` +
+                            `fontcolor=white:` +
+                            `fontsize=${fontSize}:` +
+                            `bordercolor=black:` +
+                            `borderw=${strokeWidth}:` +
+                            `shadowcolor=black@0.5:` +
+                            `shadowx=2:` +
+                            `shadowy=2:` +
+                            `x=(w-text_w)/2:` +
+                            `y=${yPos}[${nextLabel}]`
+                        );
+                        
+                        currentVideoLabel = nextLabel;
+                        labelCounter++;
+                    }
                 }
             }
 
             // Add project name/branding (always shown)
             if (projectName) {
                 const escapedBrandingFont = FONTS.english.replace(/:/g, '\\:');
-                filterComplex += `,drawtext=fontfile='${escapedBrandingFont}':text='${escapedProjectName}':fontcolor=white:fontsize=${brandingFontSize}:x=(w-text_w)/2:y=${brandingY}`;
+                const nextLabel = `vout`;
+                
+                filterParts.push(
+                    `[${currentVideoLabel}]drawtext=fontfile='${escapedBrandingFont}':` +
+                    `text='${escapedProjectName}':` +
+                    `fontcolor=white:` +
+                    `fontsize=${brandingFontSize}:` +
+                    `x=(w-text_w)/2:` +
+                    `y=${brandingY}[${nextLabel}]`
+                );
+                
+                currentVideoLabel = nextLabel;
             }
 
-            console.log(`🎬 Filter complex: ${filterComplex.substring(0, 200)}...`);
+            // Join all filter parts with semicolons
+            const filterComplex = filterParts.join(';');
+
+            console.log(`🎬 Filter complex parts: ${filterParts.length}`);
+            console.log(`🎬 Filter complex preview: ${filterComplex.substring(0, 300)}...`);
             
             // Log the escaped text for debugging
-            if (topText) console.log(`📝 Top text (escaped): ${wrappedTopText.substring(0, 100)}`);
-            if (bottomText) console.log(`📝 Bottom text (escaped): ${wrappedBottomText.substring(0, 100)}`);
+            if (topText) console.log(`📝 Top text lines: ${topLines.length}`);
+            if (bottomText) console.log(`📝 Bottom text lines: ${bottomLines.length}`);
 
             ffmpeg(videoPath)
                 .complexFilter(filterComplex)
                 .outputOptions([
-                    '-c:v libx264',
-                    '-preset fast',
-                    '-crf 18',
-                    '-c:a copy'
+                    '-map', `[${currentVideoLabel}]`,  // Map the final video output
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '18',
+                    '-c:a', 'copy'
                 ])
                 .output(outputPath)
                 .on('start', (cmd) => {
