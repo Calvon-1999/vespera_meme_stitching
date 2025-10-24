@@ -295,6 +295,9 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const strokeWidth = Math.max(2, Math.floor(fontSize / 10));
             const lineHeight = fontSize + 5;
             const verticalOffset = 20;
+            
+            // Black bar configuration (to avoid overlap)
+            const estimatedBlackBarHeight = 100; // Height of the black bar at bottom
 
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
@@ -336,11 +339,6 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const overlayY = height - overlayHeight; // Bottom of video
             console.log(`📍 Overlay position: x=${overlayX}, y=${overlayY} (full frame overlay)`);
             
-            // Calculate text position within the overlay (adjusting for overlay position)
-            const brandingFontSize = 24;
-            const brandingY = overlayY + 10; // Original position
-            
-            const escapedProjectName = escapeForDrawtext(projectName);
             console.log(`📝 Project name for branding: ${projectName}`);
 
             // Build filter complex step by step
@@ -384,12 +382,15 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                     }
                 }
 
-                // Add BOTTOM text
+                // Add BOTTOM text - position above the black bar
                 if (bottomText) {
+                    const totalBottomHeight = bottomLines.length * lineHeight;
+                    const bottomOffset = estimatedBlackBarHeight; // Position above the black bar
+                    
                     for (let index = 0; index < bottomLines.length; index++) {
                         const line = bottomLines[index];
                         const escapedLine = escapeForDrawtext(line);
-                        const yPos = height - verticalOffset - ((bottomLines.length - index) * lineHeight);
+                        const yPos = height - totalBottomHeight - bottomOffset + (index * lineHeight);
                         const nextLabel = `v${labelCounter}`;
                         
                         filterParts.push(
@@ -412,21 +413,31 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 }
             }
 
-            // Add project name/branding (always shown) - use same font as all text
-            if (projectName) {
-                const nextLabel = `vout`;
-                
-                filterParts.push(
-                    `[${currentVideoLabel}]drawtext=fontfile='${escapedFont}':` +
-                    `text='${escapedProjectName}':` +
-                    `fontcolor=white:` +
-                    `fontsize=${brandingFontSize}:` +
-                    `x=(w-text_w)/2:` +
-                    `y=${brandingY}[${nextLabel}]`
-                );
-                
-                currentVideoLabel = nextLabel;
-            }
+            // Add luna.fun branding at bottom-left corner
+            const brandingText = projectName ? `luna.fun/memes/${projectName}` : "luna.fun/memes";
+            const escapedBrandingText = escapeForDrawtext(brandingText);
+            const brandingFontSize = 18; // Smaller, fixed size
+            const brandingStrokeWidth = 1;
+            const brandingX = 20; // 20px from left edge
+            const brandingY = height - brandingFontSize - 20; // 20px from actual bottom
+            
+            const nextLabel = `vout`;
+            
+            filterParts.push(
+                `[${currentVideoLabel}]drawtext=fontfile='${escapedFont}':` +
+                `text='${escapedBrandingText}':` +
+                `fontcolor=white:` +
+                `fontsize=${brandingFontSize}:` +
+                `bordercolor=black:` +
+                `borderw=${brandingStrokeWidth}:` +
+                `shadowcolor=black@0.5:` +
+                `shadowx=2:` +
+                `shadowy=2:` +
+                `x=${brandingX}:` +
+                `y=${brandingY}[${nextLabel}]`
+            );
+            
+            currentVideoLabel = nextLabel;
 
             // Join all filter parts with semicolons
             const filterComplex = filterParts.join(';');
