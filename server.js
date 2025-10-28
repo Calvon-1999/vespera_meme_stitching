@@ -668,43 +668,27 @@ async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
             console.log(`📏 Video duration: ${videoDuration}s`);
 
             let inputs = [videoPath];
-            let filterInputs = [];
             let filterComplex = '';
-            let outputMap = '[outv]';
 
             if (hasAudio) {
                 inputs.push(audioPath);
-                filterInputs.push('[1:a]');
             }
 
             if (hasMusic) {
                 inputs.push(musicPath);
-                const musicIndex = hasAudio ? 2 : 1;
-                filterInputs.push(`[${musicIndex}:a]`);
             }
 
-            if (filterInputs.length > 0) {
-                if (filterInputs.length === 1) {
-                    // Single audio input - no need for amerge
-                    if (hasMusic) {
-                        // Just apply volume to music
-                        filterComplex = `${filterInputs[0]}volume=0.3[outa]`;
-                    } else {
-                        // Just use the audio as-is
-                        filterComplex = `${filterInputs[0]}acopy[outa]`;
-                    }
-                } else {
-                    // Multiple audio inputs - use amerge
-                    const audioFilters = filterInputs.map((input, idx) => {
-                        if (idx === filterInputs.length - 1 && hasMusic) {
-                            return `${input}volume=0.3`;
-                        }
-                        return input;
-                    }).join('');
-
-                    filterComplex = `${audioFilters}amerge=inputs=${filterInputs.length}[outa]`;
-                }
-                outputMap = '[outv];[outa]';
+            // Build the filter complex based on available audio sources
+            if (hasAudio && hasMusic) {
+                // Both dialogue and music - merge with volume adjustment on music
+                const musicIndex = 2;
+                filterComplex = `[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a1];[${musicIndex}:a]volume=0.3,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a2];[a1][a2]amerge=inputs=2[outa]`;
+            } else if (hasMusic) {
+                // Only music - apply volume reduction
+                filterComplex = '[1:a]volume=0.3,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[outa]';
+            } else if (hasAudio) {
+                // Only dialogue - just pass through with proper format
+                filterComplex = '[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[outa]';
             }
 
             console.log(`🎬 Filter complex: ${filterComplex}`);
@@ -863,6 +847,8 @@ async function processVideoRequest(req, res) {
             if (needsMemeText) {
                 await fsp.unlink(videoWithTextPath);
                 await fsp.unlink(videoWithTextNoOverlayPath);
+            } else {
+                await fsp.unlink(videoWithTextPath);
             }
         } catch (cleanupErr) {
             console.warn('⚠️  Cleanup warning:', cleanupErr.message);
