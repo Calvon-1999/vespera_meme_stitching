@@ -299,10 +299,10 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
             
             const fontSize = Math.floor(height / dynamicDivisor);
             const strokeWidth = Math.max(2, Math.floor(fontSize / 10));
-            const lineHeight = fontSize + 8; // Increased spacing slightly
+            const lineHeight = fontSize + 12; // Increased spacing for better readability
             
             // FIXED: Add proper padding to ensure text doesn't get cropped
-            const verticalPadding = 30; // Minimum distance from edge
+            const verticalPadding = 40; // Increased minimum distance from edge
             
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
@@ -358,8 +358,9 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
                 for (let index = 0; index < bottomLines.length; index++) {
                     const line = bottomLines[index];
                     const escapedLine = escapeForDrawtext(line);
-                    // FIXED: Calculate position from bottom with padding
-                    const yPos = height - verticalPadding - totalBottomHeight + (index * lineHeight);
+                    // FIXED: Calculate position from bottom with extra padding to avoid cropping
+                    // Add extra 15px buffer to ensure text doesn't touch the edge
+                    const yPos = height - verticalPadding - totalBottomHeight + (index * lineHeight) - 15;
                     const nextLabel = `v${labelCounter}`;
                     
                     filterParts.push(
@@ -455,14 +456,14 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             
             const fontSize = Math.floor(height / dynamicDivisor);
             const strokeWidth = Math.max(2, Math.floor(fontSize / 10));
-            const lineHeight = fontSize + 8; // Increased spacing slightly
+            const lineHeight = fontSize + 12; // Increased spacing for better readability
             
             // FIXED: Proper padding to avoid cropping
-            const topPadding = 30;
+            const topPadding = 40; // Increased top padding
             
             // Black bar configuration
             const estimatedBlackBarHeight = 100;
-            const bottomPadding = estimatedBlackBarHeight + 20; // Extra padding above black bar
+            const bottomPadding = estimatedBlackBarHeight + 40; // Increased padding above black bar
 
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
@@ -549,8 +550,9 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 for (let index = 0; index < bottomLines.length; index++) {
                     const line = bottomLines[index];
                     const escapedLine = escapeForDrawtext(line);
-                    // FIXED: Calculate from bottom with padding above overlay
-                    const yPos = height - bottomPadding - totalBottomHeight + (index * lineHeight);
+                    // FIXED: Calculate from bottom with padding above overlay + extra buffer
+                    // Add 20px extra buffer to ensure text is fully visible
+                    const yPos = height - bottomPadding - totalBottomHeight + (index * lineHeight) - 20;
                     const nextLabel = `v${labelCounter}`;
                     
                     filterParts.push(
