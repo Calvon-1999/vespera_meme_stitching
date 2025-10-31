@@ -728,8 +728,8 @@ async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
             if (hasDialogue) {
                 inputs.push(audioPath);
                 const dialogueIndex = inputs.length - 1;
-                // Dialogue plays once (no loop), padded with silence if shorter than video
-                audioInputs.push(`[${dialogueIndex}:a]apad,atrim=duration=${videoDuration},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[dialogue_audio]`);
+                // Dialogue plays once, amix will handle duration
+                audioInputs.push(`[${dialogueIndex}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[dialogue_audio]`);
             }
 
             if (hasMusic) {
@@ -747,10 +747,10 @@ async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
                 if (hasMusic) audioLabels.push('[music_audio]');
                 
                 if (audioLabels.length > 1) {
-                    // Multiple audio sources - need to format, merge, and downmix
+                    // Multiple audio sources - use amix to overlay (not amerge which causes silence)
                     filterComplex = audioInputs.join(';');
-                    filterComplex += `;${audioLabels.join('')}amerge=inputs=${audioLabels.length}[merged]`;
-                    filterComplex += `;[merged]pan=stereo|c0<c0+c2+c4|c1<c1+c3+c5[outa]`;
+                    // amix allows tracks to overlap, so music continues when dialogue ends
+                    filterComplex += `;${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0[outa]`;
                 } else if (audioLabels.length === 1) {
                     // Only one audio source
                     const label = audioLabels[0].replace('[', '').replace(']', '');
