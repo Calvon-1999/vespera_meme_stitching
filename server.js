@@ -188,7 +188,7 @@ async function getImageDimensions(filepath) {
  * Wraps text by inserting newlines to prevent excessive width
  * Handles both Latin and CJK characters appropriately
  */
-function wrapText(text, maxCharsPerLine = 30) {
+function wrapText(text, maxCharsPerLine = 35) {
     if (!text) return '';
     
     // Check if text contains significant CJK characters
@@ -219,20 +219,33 @@ function wrapText(text, maxCharsPerLine = 30) {
     } else {
         // For Latin text, wrap at word boundaries
         const words = text.split(' ');
-        let wrappedText = '';
-        let currentLineLength = 0;
+        let lines = [];
+        let currentLine = '';
 
         for (const word of words) {
-            if (currentLineLength + word.length + 1 > maxCharsPerLine && currentLineLength > 0) {
-                wrappedText += '\n' + word + ' ';
-                currentLineLength = word.length + 1;
+            const testLine = currentLine ? currentLine + ' ' + word : word;
+            
+            // If adding this word would exceed the limit, start a new line
+            if (testLine.length > maxCharsPerLine) {
+                if (currentLine) {
+                    lines.push(currentLine);
+                    currentLine = word;
+                } else {
+                    // Single word is too long, force break it
+                    lines.push(word);
+                    currentLine = '';
+                }
             } else {
-                wrappedText += word + ' ';
-                currentLineLength += word.length + 1;
+                currentLine = testLine;
             }
         }
         
-        return wrappedText.trim();
+        // Add the last line
+        if (currentLine) {
+            lines.push(currentLine);
+        }
+        
+        return lines.join('\n');
     }
 }
 
@@ -286,23 +299,24 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
             const { width, height } = await getVideoDimensions(videoPath);
             console.log(`📐 Video dimensions: ${width}x${height}`);
 
-            const wrappedTopText = wrapText(topText, 45);
-            const wrappedBottomText = wrapText(bottomText, 45);
+            const wrappedTopText = wrapText(topText, 35); // Reduced for better wrapping
+            const wrappedBottomText = wrapText(bottomText, 35); // Reduced for better wrapping
             
             const topLines = wrappedTopText.split('\n').filter(line => line.trim());
             const bottomLines = wrappedBottomText.split('\n').filter(line => line.trim());
             const maxLines = Math.max(topLines.length, bottomLines.length, 1);
             
-            const baseDivisor = 12;
+            // Adjust font size calculation to be more conservative
+            const baseDivisor = 14; // Increased from 12 for smaller default size
             const verticalCompressionFactor = 2;
             const dynamicDivisor = baseDivisor + ((maxLines - 1) * verticalCompressionFactor);
             
             const fontSize = Math.floor(height / dynamicDivisor);
             const strokeWidth = Math.max(2, Math.floor(fontSize / 10));
-            const lineHeight = fontSize + 12; // Increased spacing for better readability
+            const lineHeight = Math.floor(fontSize * 1.3); // 30% extra space between lines
             
-            // FIXED: Add proper padding to ensure text doesn't get cropped
-            const verticalPadding = 40; // Increased minimum distance from edge
+            // FIXED: Much more generous padding to prevent any cropping
+            const verticalPadding = Math.floor(height * 0.08); // 8% of video height as padding
             
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
@@ -353,14 +367,19 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
 
             // Add BOTTOM text with proper padding
             if (bottomText) {
-                const totalBottomHeight = bottomLines.length * lineHeight;
+                // Calculate total height needed for bottom text including all padding
+                const totalBottomTextHeight = bottomLines.length * lineHeight;
+                const strokePadding = strokeWidth * 2; // Account for stroke extending beyond text
+                const shadowPadding = 4; // Account for shadow effect
+                const safetyBuffer = 50; // INCREASED: Extra safety margin to prevent cropping
+                
+                const totalBottomReservedSpace = totalBottomTextHeight + strokePadding + shadowPadding + safetyBuffer;
                 
                 for (let index = 0; index < bottomLines.length; index++) {
                     const line = bottomLines[index];
                     const escapedLine = escapeForDrawtext(line);
-                    // FIXED: Calculate position from bottom with extra padding to avoid cropping
-                    // Add extra 15px buffer to ensure text doesn't touch the edge
-                    const yPos = height - verticalPadding - totalBottomHeight + (index * lineHeight) - 15;
+                    // Position from bottom: video height - padding - total text block height + line offset
+                    const yPos = height - verticalPadding - totalBottomReservedSpace + (index * lineHeight);
                     const nextLabel = `v${labelCounter}`;
                     
                     filterParts.push(
@@ -443,27 +462,28 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const { width, height } = await getVideoDimensions(videoPath);
             console.log(`📐 Video dimensions: ${width}x${height}`);
 
-            const wrappedTopText = wrapText(topText, 45);
-            const wrappedBottomText = wrapText(bottomText, 45);
+            const wrappedTopText = wrapText(topText, 35); // Reduced for better wrapping
+            const wrappedBottomText = wrapText(bottomText, 35); // Reduced for better wrapping
             
             const topLines = wrappedTopText.split('\n').filter(line => line.trim());
             const bottomLines = wrappedBottomText.split('\n').filter(line => line.trim());
             const maxLines = needsMemeText ? Math.max(topLines.length, bottomLines.length, 1) : 1;
             
-            const baseDivisor = 12;
+            // Adjust font size calculation to be more conservative
+            const baseDivisor = 14; // Increased from 12 for smaller default size
             const verticalCompressionFactor = 2;
             const dynamicDivisor = baseDivisor + ((maxLines - 1) * verticalCompressionFactor);
             
             const fontSize = Math.floor(height / dynamicDivisor);
             const strokeWidth = Math.max(2, Math.floor(fontSize / 10));
-            const lineHeight = fontSize + 12; // Increased spacing for better readability
+            const lineHeight = Math.floor(fontSize * 1.3); // 30% extra space between lines
             
-            // FIXED: Proper padding to avoid cropping
-            const topPadding = 40; // Increased top padding
+            // FIXED: Much more generous padding
+            const topPadding = Math.floor(height * 0.08); // 8% of video height
             
             // Black bar configuration
             const estimatedBlackBarHeight = 100;
-            const bottomPadding = estimatedBlackBarHeight + 40; // Increased padding above black bar
+            const bottomPadding = estimatedBlackBarHeight + Math.floor(height * 0.08); // Black bar + 8% padding
 
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
@@ -545,14 +565,19 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
 
             // Add BOTTOM text - position above the black bar with proper padding
             if (needsMemeText && bottomText) {
-                const totalBottomHeight = bottomLines.length * lineHeight;
+                // Calculate total height needed for bottom text including all padding
+                const totalBottomTextHeight = bottomLines.length * lineHeight;
+                const strokePadding = strokeWidth * 2; // Account for stroke extending beyond text
+                const shadowPadding = 4; // Account for shadow effect
+                const safetyBuffer = 50; // INCREASED: Extra safety margin to prevent cropping
+                
+                const totalBottomReservedSpace = totalBottomTextHeight + strokePadding + shadowPadding + safetyBuffer;
                 
                 for (let index = 0; index < bottomLines.length; index++) {
                     const line = bottomLines[index];
                     const escapedLine = escapeForDrawtext(line);
-                    // FIXED: Calculate from bottom with padding above overlay + extra buffer
-                    // Add 20px extra buffer to ensure text is fully visible
-                    const yPos = height - bottomPadding - totalBottomHeight + (index * lineHeight) - 20;
+                    // Position from bottom with black bar clearance
+                    const yPos = height - bottomPadding - totalBottomReservedSpace + (index * lineHeight);
                     const nextLabel = `v${labelCounter}`;
                     
                     filterParts.push(
@@ -703,30 +728,33 @@ async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
             if (hasDialogue) {
                 inputs.push(audioPath);
                 const dialogueIndex = inputs.length - 1;
-                audioInputs.push(`[${dialogueIndex}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[dialogue_audio]`);
+                // FIXED: Loop dialogue to match video duration if dialogue is shorter than video
+                audioInputs.push(`[${dialogueIndex}:a]aloop=loop=-1:size=2e+09,atrim=duration=${videoDuration},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[dialogue_audio]`);
             }
 
             if (hasMusic) {
                 inputs.push(musicPath);
                 const musicIndex = inputs.length - 1;
-                audioInputs.push(`[${musicIndex}:a]volume=0.3,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[music_audio]`);
+                // FIXED: Loop music to match video duration if music is shorter than video
+                audioInputs.push(`[${musicIndex}:a]aloop=loop=-1:size=2e+09,atrim=duration=${videoDuration},volume=0.3,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[music_audio]`);
             }
 
             // Build filter complex to mix all audio sources
             if (audioInputs.length > 0) {
-                filterComplex = audioInputs.join(';');
-                
-                // Merge all audio inputs
                 const audioLabels = [];
                 if (videoHasAudio) audioLabels.push('[original_audio]');
                 if (hasDialogue) audioLabels.push('[dialogue_audio]');
                 if (hasMusic) audioLabels.push('[music_audio]');
                 
                 if (audioLabels.length > 1) {
-                    filterComplex += `;${audioLabels.join('')}amerge=inputs=${audioLabels.length}[outa]`;
-                } else {
-                    // Only one audio source, just rename it
-                    filterComplex += `;${audioLabels[0]}acopy[outa]`;
+                    // Multiple audio sources - need to format, merge, and downmix
+                    filterComplex = audioInputs.join(';');
+                    filterComplex += `;${audioLabels.join('')}amerge=inputs=${audioLabels.length}[merged]`;
+                    filterComplex += `;[merged]pan=stereo|c0<c0+c2+c4|c1<c1+c3+c5[outa]`;
+                } else if (audioLabels.length === 1) {
+                    // Only one audio source
+                    const label = audioLabels[0].replace('[', '').replace(']', '');
+                    filterComplex = audioInputs[0].replace(`[${label}]`, '[outa]');
                 }
             }
 
