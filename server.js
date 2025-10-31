@@ -728,8 +728,8 @@ async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
             if (hasDialogue) {
                 inputs.push(audioPath);
                 const dialogueIndex = inputs.length - 1;
-                // FIXED: Loop dialogue to match video duration if dialogue is shorter than video
-                audioInputs.push(`[${dialogueIndex}:a]aloop=loop=-1:size=2e+09,atrim=duration=${videoDuration},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[dialogue_audio]`);
+                // Dialogue plays once (no loop), padded with silence if shorter than video
+                audioInputs.push(`[${dialogueIndex}:a]apad,atrim=duration=${videoDuration},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[dialogue_audio]`);
             }
 
             if (hasMusic) {
