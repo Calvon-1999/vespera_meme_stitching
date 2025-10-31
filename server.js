@@ -270,6 +270,7 @@ function escapeForDrawtext(text) {
 /**
  * Adds only the top and bottom meme text to video (no overlay, no branding)
  * Used for the "without overlay" version
+ * FIXED: Ensures text stays within frame bounds with proper padding
  */
 async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText = "", memeLanguage = null) {
     return new Promise(async (resolve, reject) => {
@@ -298,8 +299,10 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
             
             const fontSize = Math.floor(height / dynamicDivisor);
             const strokeWidth = Math.max(2, Math.floor(fontSize / 10));
-            const lineHeight = fontSize + 5;
-            const verticalOffset = 20;
+            const lineHeight = fontSize + 8; // Increased spacing slightly
+            
+            // FIXED: Add proper padding to ensure text doesn't get cropped
+            const verticalPadding = 30; // Minimum distance from edge
             
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
@@ -321,12 +324,12 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
             let currentVideoLabel = '0:v';
             let labelCounter = 1;
 
-            // Add TOP text
+            // Add TOP text with proper padding
             if (topText) {
                 for (let index = 0; index < topLines.length; index++) {
                     const line = topLines[index];
                     const escapedLine = escapeForDrawtext(line);
-                    const yPos = verticalOffset + (index * lineHeight);
+                    const yPos = verticalPadding + (index * lineHeight);
                     const nextLabel = `v${labelCounter}`;
                     
                     filterParts.push(
@@ -348,12 +351,15 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
                 }
             }
 
-            // Add BOTTOM text
+            // Add BOTTOM text with proper padding
             if (bottomText) {
+                const totalBottomHeight = bottomLines.length * lineHeight;
+                
                 for (let index = 0; index < bottomLines.length; index++) {
                     const line = bottomLines[index];
                     const escapedLine = escapeForDrawtext(line);
-                    const yPos = height - verticalOffset - ((bottomLines.length - index) * lineHeight);
+                    // FIXED: Calculate position from bottom with padding
+                    const yPos = height - verticalPadding - totalBottomHeight + (index * lineHeight);
                     const nextLabel = `v${labelCounter}`;
                     
                     filterParts.push(
@@ -382,6 +388,7 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
                 .complexFilter(filterComplex)
                 .outputOptions([
                     '-map', `[${currentVideoLabel}]`,
+                    '-map', '0:a?', // FIXED: Copy original audio if present
                     '-c:v', 'libx264',
                     '-preset', 'fast',
                     '-crf', '18',
@@ -418,6 +425,10 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
     });
 }
 
+/**
+ * Adds meme text with overlay and branding
+ * FIXED: Ensures text stays within frame bounds and doesn't overlap with overlay
+ */
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "", projectName = "", memeLanguage = null) {
     return new Promise(async (resolve, reject) => {
         try {
@@ -444,23 +455,23 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             
             const fontSize = Math.floor(height / dynamicDivisor);
             const strokeWidth = Math.max(2, Math.floor(fontSize / 10));
-            const lineHeight = fontSize + 5;
-            const verticalOffset = 20;
+            const lineHeight = fontSize + 8; // Increased spacing slightly
             
-            // Black bar configuration (to avoid overlap)
-            const estimatedBlackBarHeight = 100; // Height of the black bar at bottom
+            // FIXED: Proper padding to avoid cropping
+            const topPadding = 30;
+            
+            // Black bar configuration
+            const estimatedBlackBarHeight = 100;
+            const bottomPadding = estimatedBlackBarHeight + 20; // Extra padding above black bar
 
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
-            // Use the same font for ALL text (top, bottom, and branding) based on language parameter
-            // If language is provided, use that font for everything
-            // Otherwise, auto-detect from the text content
+            // Use the same font for ALL text based on language parameter
             let selectedFont;
             if (memeLanguage && FONTS[memeLanguage.toLowerCase()]) {
                 selectedFont = FONTS[memeLanguage.toLowerCase()];
                 console.log(`🔤 Using provided language font for all text: ${memeLanguage}`);
             } else {
-                // Auto-detect from text content (fallback)
                 const textToDetect = topText || bottomText || '';
                 selectedFont = textToDetect ? getFontForText(textToDetect, null) : FONTS.english;
                 console.log(`🔤 Auto-detecting font from text content`);
@@ -481,21 +492,21 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const overlayDimensions = await getImageDimensions(OVERLAY_IMAGE_PATH);
             console.log(`📐 Overlay image dimensions: ${overlayDimensions.width}x${overlayDimensions.height}`);
             
-            // Use overlay at native size (no scaling needed for 1280x720)
+            // Use overlay at native size
             const overlayWidth = overlayDimensions.width;
             const overlayHeight = overlayDimensions.height;
             
-            // Position at bottom of video (centered horizontally, at bottom vertically)
-            const overlayX = Math.floor((width - overlayWidth) / 2); // Center horizontally
-            const overlayY = height - overlayHeight; // Bottom of video
-            console.log(`📍 Overlay position: x=${overlayX}, y=${overlayY} (full frame overlay)`);
+            // Position at bottom of video
+            const overlayX = Math.floor((width - overlayWidth) / 2);
+            const overlayY = height - overlayHeight;
+            console.log(`📍 Overlay position: x=${overlayX}, y=${overlayY}`);
             
             console.log(`📝 Project name for branding: ${projectName}`);
 
             // Build filter complex step by step
             let filterParts = [];
             
-            // Step 1: Load overlay image as a separate input
+            // Step 1: Load overlay image
             filterParts.push(`movie='${OVERLAY_IMAGE_PATH.replace(/'/g, "'\\\\''").replace(/:/g, '\\:')}'[overlay]`);
             
             // Step 2: Overlay the image on the video
@@ -504,73 +515,70 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             let currentVideoLabel = 'v1';
             let labelCounter = 2;
 
-            // Only add meme text if provided
-            if (needsMemeText) {
-                // Add TOP text
-                if (topText) {
-                    for (let index = 0; index < topLines.length; index++) {
-                        const line = topLines[index];
-                        const escapedLine = escapeForDrawtext(line);
-                        const yPos = verticalOffset + (index * lineHeight);
-                        const nextLabel = `v${labelCounter}`;
-                        
-                        filterParts.push(
-                            `[${currentVideoLabel}]drawtext=fontfile='${escapedFont}':` +
-                            `text='${escapedLine}':` +
-                            `fontcolor=white:` +
-                            `fontsize=${fontSize}:` +
-                            `bordercolor=black:` +
-                            `borderw=${strokeWidth}:` +
-                            `shadowcolor=black@0.5:` +
-                            `shadowx=2:` +
-                            `shadowy=2:` +
-                            `x=(w-text_w)/2:` +
-                            `y=${yPos}[${nextLabel}]`
-                        );
-                        
-                        currentVideoLabel = nextLabel;
-                        labelCounter++;
-                    }
-                }
-
-                // Add BOTTOM text - position above the black bar
-                if (bottomText) {
-                    const totalBottomHeight = bottomLines.length * lineHeight;
-                    const bottomOffset = estimatedBlackBarHeight; // Position above the black bar
+            // Add TOP text with proper padding
+            if (needsMemeText && topText) {
+                for (let index = 0; index < topLines.length; index++) {
+                    const line = topLines[index];
+                    const escapedLine = escapeForDrawtext(line);
+                    const yPos = topPadding + (index * lineHeight);
+                    const nextLabel = `v${labelCounter}`;
                     
-                    for (let index = 0; index < bottomLines.length; index++) {
-                        const line = bottomLines[index];
-                        const escapedLine = escapeForDrawtext(line);
-                        const yPos = height - totalBottomHeight - bottomOffset + (index * lineHeight);
-                        const nextLabel = `v${labelCounter}`;
-                        
-                        filterParts.push(
-                            `[${currentVideoLabel}]drawtext=fontfile='${escapedFont}':` +
-                            `text='${escapedLine}':` +
-                            `fontcolor=white:` +
-                            `fontsize=${fontSize}:` +
-                            `bordercolor=black:` +
-                            `borderw=${strokeWidth}:` +
-                            `shadowcolor=black@0.5:` +
-                            `shadowx=2:` +
-                            `shadowy=2:` +
-                            `x=(w-text_w)/2:` +
-                            `y=${yPos}[${nextLabel}]`
-                        );
-                        
-                        currentVideoLabel = nextLabel;
-                        labelCounter++;
-                    }
+                    filterParts.push(
+                        `[${currentVideoLabel}]drawtext=fontfile='${escapedFont}':` +
+                        `text='${escapedLine}':` +
+                        `fontcolor=white:` +
+                        `fontsize=${fontSize}:` +
+                        `bordercolor=black:` +
+                        `borderw=${strokeWidth}:` +
+                        `shadowcolor=black@0.5:` +
+                        `shadowx=2:` +
+                        `shadowy=2:` +
+                        `x=(w-text_w)/2:` +
+                        `y=${yPos}[${nextLabel}]`
+                    );
+                    
+                    currentVideoLabel = nextLabel;
+                    labelCounter++;
+                }
+            }
+
+            // Add BOTTOM text - position above the black bar with proper padding
+            if (needsMemeText && bottomText) {
+                const totalBottomHeight = bottomLines.length * lineHeight;
+                
+                for (let index = 0; index < bottomLines.length; index++) {
+                    const line = bottomLines[index];
+                    const escapedLine = escapeForDrawtext(line);
+                    // FIXED: Calculate from bottom with padding above overlay
+                    const yPos = height - bottomPadding - totalBottomHeight + (index * lineHeight);
+                    const nextLabel = `v${labelCounter}`;
+                    
+                    filterParts.push(
+                        `[${currentVideoLabel}]drawtext=fontfile='${escapedFont}':` +
+                        `text='${escapedLine}':` +
+                        `fontcolor=white:` +
+                        `fontsize=${fontSize}:` +
+                        `bordercolor=black:` +
+                        `borderw=${strokeWidth}:` +
+                        `shadowcolor=black@0.5:` +
+                        `shadowx=2:` +
+                        `shadowy=2:` +
+                        `x=(w-text_w)/2:` +
+                        `y=${yPos}[${nextLabel}]`
+                    );
+                    
+                    currentVideoLabel = nextLabel;
+                    labelCounter++;
                 }
             }
 
             // Add luna.fun branding at bottom-left corner
             const brandingText = projectName ? `luna.fun/memes/${projectName}` : "luna.fun/memes";
             const escapedBrandingText = escapeForDrawtext(brandingText);
-            const brandingFontSize = 18; // Smaller, fixed size
+            const brandingFontSize = 18;
             const brandingStrokeWidth = 1;
-            const brandingX = 20; // 20px from left edge
-            const brandingY = height - brandingFontSize - 20; // 20px from actual bottom
+            const brandingX = 20;
+            const brandingY = height - brandingFontSize - 20;
             
             const nextLabel = `vout`;
             
@@ -590,20 +598,18 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             
             currentVideoLabel = nextLabel;
 
-            // Join all filter parts with semicolons
             const filterComplex = filterParts.join(';');
 
             console.log(`🎬 Filter complex parts: ${filterParts.length}`);
-            console.log(`🎬 Filter complex preview: ${filterComplex.substring(0, 300)}...`);
             
-            // Log the escaped text for debugging
             if (topText) console.log(`📝 Top text lines: ${topLines.length}`);
             if (bottomText) console.log(`📝 Bottom text lines: ${bottomLines.length}`);
 
             ffmpeg(videoPath)
                 .complexFilter(filterComplex)
                 .outputOptions([
-                    '-map', `[${currentVideoLabel}]`,  // Map the final video output
+                    '-map', `[${currentVideoLabel}]`,
+                    '-map', '0:a?', // FIXED: Copy original audio if present
                     '-c:v', 'libx264',
                     '-preset', 'fast',
                     '-crf', '18',
@@ -612,10 +618,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 .output(outputPath)
                 .on('start', (cmd) => {
                     console.log('🚀 FFmpeg started');
-                    console.log('Full command:', cmd);
                 })
                 .on('stderr', (stderrLine) => {
-                    // Log FFmpeg errors for debugging
                     if (stderrLine.includes('Error') || stderrLine.includes('Invalid')) {
                         console.error('FFmpeg stderr:', stderrLine);
                     }
@@ -642,56 +646,90 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
     });
 }
 
+/**
+ * FIXED: Properly mix video with its original audio plus background music
+ * Ensures video duration is maintained
+ */
 async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
     return new Promise(async (resolve, reject) => {
         try {
             console.log('🎵 mixVideo function called');
             
-            const hasAudio = !!audioPath;
+            const hasDialogue = !!audioPath;
             const hasMusic = !!musicPath;
+            
+            // Check if video has audio
+            const videoHasAudio = await new Promise((res) => {
+                ffmpeg.ffprobe(videoPath, (err, metadata) => {
+                    if (err) {
+                        res(false);
+                        return;
+                    }
+                    const audioStream = metadata.streams.find(s => s.codec_type === 'audio');
+                    res(!!audioStream);
+                });
+            });
 
-            if (!hasAudio && !hasMusic) {
-                console.log('⚠️  No audio or music provided - copying video as-is');
+            console.log(`🎧 Video has audio: ${videoHasAudio}`);
+            console.log(`🎤 Has dialogue: ${hasDialogue}`);
+            console.log(`🎵 Has music: ${hasMusic}`);
+
+            if (!hasDialogue && !hasMusic && !videoHasAudio) {
+                console.log('⚠️  No audio sources - copying video as-is');
                 await fsp.copyFile(videoPath, outputPath);
                 return resolve(outputPath);
             }
 
-            const videoDuration = await getVideoDimensions(videoPath).then(() => 
-                new Promise((res, rej) => {
-                    ffmpeg.ffprobe(videoPath, (err, metadata) => {
-                        if (err) rej(err);
-                        else res(metadata.format.duration);
-                    });
-                })
-            );
+            const videoDuration = await new Promise((res, rej) => {
+                ffmpeg.ffprobe(videoPath, (err, metadata) => {
+                    if (err) rej(err);
+                    else res(metadata.format.duration);
+                });
+            });
 
             console.log(`📏 Video duration: ${videoDuration}s`);
 
             let inputs = [videoPath];
             let filterComplex = '';
+            let audioInputs = [];
 
-            if (hasAudio) {
+            // FIXED: Include original video audio if present
+            if (videoHasAudio) {
+                audioInputs.push('[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[original_audio]');
+            }
+
+            if (hasDialogue) {
                 inputs.push(audioPath);
+                const dialogueIndex = inputs.length - 1;
+                audioInputs.push(`[${dialogueIndex}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[dialogue_audio]`);
             }
 
             if (hasMusic) {
                 inputs.push(musicPath);
+                const musicIndex = inputs.length - 1;
+                audioInputs.push(`[${musicIndex}:a]volume=0.3,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[music_audio]`);
             }
 
-            // Build the filter complex based on available audio sources
-            if (hasAudio && hasMusic) {
-                // Both dialogue and music - merge with volume adjustment on music
-                const musicIndex = 2;
-                filterComplex = `[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a1];[${musicIndex}:a]volume=0.3,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a2];[a1][a2]amerge=inputs=2[outa]`;
-            } else if (hasMusic) {
-                // Only music - apply volume reduction
-                filterComplex = '[1:a]volume=0.3,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[outa]';
-            } else if (hasAudio) {
-                // Only dialogue - just pass through with proper format
-                filterComplex = '[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[outa]';
+            // Build filter complex to mix all audio sources
+            if (audioInputs.length > 0) {
+                filterComplex = audioInputs.join(';');
+                
+                // Merge all audio inputs
+                const audioLabels = [];
+                if (videoHasAudio) audioLabels.push('[original_audio]');
+                if (hasDialogue) audioLabels.push('[dialogue_audio]');
+                if (hasMusic) audioLabels.push('[music_audio]');
+                
+                if (audioLabels.length > 1) {
+                    filterComplex += `;${audioLabels.join('')}amerge=inputs=${audioLabels.length}[outa]`;
+                } else {
+                    // Only one audio source, just rename it
+                    filterComplex += `;${audioLabels[0]}acopy[outa]`;
+                }
             }
 
-            console.log(`🎬 Filter complex: ${filterComplex}`);
+            console.log(`🎬 Audio inputs: ${audioInputs.length}`);
+            console.log(`🎬 Filter complex: ${filterComplex.substring(0, 200)}${filterComplex.length > 200 ? '...' : ''}`);
 
             const command = ffmpeg();
             
@@ -708,10 +746,10 @@ async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
                     '-c:v', 'copy',
                     '-c:a', 'aac',
                     '-b:a', '192k',
-                    '-shortest'
+                    '-t', videoDuration.toString() // FIXED: Ensure output matches video duration
                 ])
                 .output(outputPath)
-                .on('start', (cmd) => console.log('🚀 FFmpeg mixing started:', cmd.substring(0, 300) + '...'))
+                .on('start', (cmd) => console.log('🚀 FFmpeg mixing started'))
                 .on('progress', (progress) => {
                     if (progress.percent) {
                         console.log(`⏳ Mixing progress: ${progress.percent.toFixed(1)}%`);
@@ -752,6 +790,7 @@ async function processVideoRequest(req, res) {
 
         const {
             final_stitched_video,
+            final_stitch_video, // Alternative parameter name
             final_dialogue,
             final_music_url,
             meme_top_text,
@@ -759,9 +798,12 @@ async function processVideoRequest(req, res) {
             meme_project_name,
             meme_language
         } = req.body;
+        
+        // FIXED: Support both parameter names
+        const videoUrl = final_stitched_video || final_stitch_video;
 
         console.log('📋 Request parameters:');
-        console.log('   Video URL:', final_stitched_video ? '✅' : '❌');
+        console.log('   Video URL:', videoUrl ? '✅' : '❌');
         console.log('   Audio URL:', final_dialogue ? '✅' : '❌');
         console.log('   Music URL:', final_music_url ? '✅' : '❌');
         console.log('   Top text:', meme_top_text || '(none)');
@@ -769,9 +811,9 @@ async function processVideoRequest(req, res) {
         console.log('   Project name:', meme_project_name || '(none)');
         console.log('   Language:', meme_language || '(auto-detect)');
 
-        if (!final_stitched_video) {
+        if (!videoUrl) {
             console.error('❌ Missing video URL');
-            return res.status(400).json({ error: "Missing required input: final_stitched_video" });
+            return res.status(400).json({ error: "Missing required input: final_stitched_video or final_stitch_video" });
         }
 
         // Generate unique ID for this processing job
@@ -792,11 +834,11 @@ async function processVideoRequest(req, res) {
         
         console.log('🔍 Processing Plan:');
         console.log('   Needs meme text:', needsMemeText);
-        console.log('   Has audio:', !!(final_dialogue || final_music_url));
+        console.log('   Has audio/music:', !!(final_dialogue || final_music_url));
 
         // Download video
         console.log('\n📥 Downloading assets...');
-        await downloadFile(final_stitched_video, videoPath);
+        await downloadFile(videoUrl, videoPath);
 
         // Download audio files if provided
         if (final_dialogue) {
