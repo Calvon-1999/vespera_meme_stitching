@@ -371,7 +371,7 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
                 const totalBottomTextHeight = bottomLines.length * lineHeight;
                 const strokePadding = strokeWidth * 2; // Account for stroke extending beyond text
                 const shadowPadding = 4; // Account for shadow effect
-                const safetyBuffer = 50; // INCREASED: Extra safety margin to prevent cropping
+                const safetyBuffer = 80; // INCREASED: Very conservative margin to prevent any cropping
                 
                 const totalBottomReservedSpace = totalBottomTextHeight + strokePadding + shadowPadding + safetyBuffer;
                 
@@ -569,7 +569,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 const totalBottomTextHeight = bottomLines.length * lineHeight;
                 const strokePadding = strokeWidth * 2; // Account for stroke extending beyond text
                 const shadowPadding = 4; // Account for shadow effect
-                const safetyBuffer = 50; // INCREASED: Extra safety margin to prevent cropping
+                const safetyBuffer = 80; // INCREASED: Very conservative margin to prevent any cropping
                 
                 const totalBottomReservedSpace = totalBottomTextHeight + strokePadding + shadowPadding + safetyBuffer;
                 
@@ -735,8 +735,8 @@ async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
             if (hasMusic) {
                 inputs.push(musicPath);
                 const musicIndex = inputs.length - 1;
-                // FIXED: Loop music to match video duration if music is shorter than video
-                audioInputs.push(`[${musicIndex}:a]aloop=loop=-1:size=2e+09,atrim=duration=${videoDuration},volume=0.3,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[music_audio]`);
+                // FIXED: Trim music to video duration (no looping, just trim if longer)
+                audioInputs.push(`[${musicIndex}:a]atrim=duration=${videoDuration},volume=0.3,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[music_audio]`);
             }
 
             // Build filter complex to mix all audio sources
