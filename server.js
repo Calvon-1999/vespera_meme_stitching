@@ -559,16 +559,18 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 }
             }
 
-            // Add BOTTOM text with simpler positioning (matching second code)
+            // Add BOTTOM text - EXACT same positioning as addMemeTextOnly for consistency
             if (needsMemeText && bottomText) {
                 // Calculate total height needed for bottom text
                 const totalBottomTextHeight = bottomLines.length * lineHeight;
+                // Use the same bottomOffset calculation as the version without overlay
+                const bottomOffsetForText = Math.floor(height * 0.08) + estimatedBlackBarHeight;
                 
                 for (let index = 0; index < bottomLines.length; index++) {
                     const line = bottomLines[index];
                     const escapedLine = escapeForDrawtext(line);
-                    // Position from bottom with black bar clearance - simpler calculation like second code
-                    const yPos = height - totalBottomTextHeight - bottomPadding + (index * lineHeight);
+                    // EXACT same calculation as addMemeTextOnly() for consistent positioning
+                    const yPos = height - totalBottomTextHeight - bottomOffsetForText + (index * lineHeight);
                     const nextLabel = `v${labelCounter}`;
                     
                     filterParts.push(
