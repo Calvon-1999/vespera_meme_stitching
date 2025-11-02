@@ -563,8 +563,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             if (needsMemeText && bottomText) {
                 // Calculate total height needed for bottom text
                 const totalBottomTextHeight = bottomLines.length * lineHeight;
-                // Use the same bottomOffset calculation as the version without overlay
-                const bottomOffsetForText = Math.floor(height * 0.08) + estimatedBlackBarHeight;
+                // Use EXACT same offset as the version without overlay (just the 8% padding)
+                const bottomOffsetForText = Math.floor(height * 0.08);
                 
                 for (let index = 0; index < bottomLines.length; index++) {
                     const line = bottomLines[index];
