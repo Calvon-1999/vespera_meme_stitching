@@ -283,7 +283,7 @@ function escapeForDrawtext(text) {
 /**
  * Adds only the top and bottom meme text to video (no overlay, no branding)
  * Used for the "without overlay" version
- * FIXED: Ensures text stays within frame bounds with proper padding
+ * FIXED: Bottom text position matches second code's simpler, lower positioning
  */
 async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText = "", memeLanguage = null) {
     return new Promise(async (resolve, reject) => {
@@ -299,15 +299,15 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
             const { width, height } = await getVideoDimensions(videoPath);
             console.log(`📐 Video dimensions: ${width}x${height}`);
 
-            const wrappedTopText = wrapText(topText, 35); // Reduced for better wrapping
-            const wrappedBottomText = wrapText(bottomText, 35); // Reduced for better wrapping
+            const wrappedTopText = wrapText(topText, 35);
+            const wrappedBottomText = wrapText(bottomText, 35);
             
             const topLines = wrappedTopText.split('\n').filter(line => line.trim());
             const bottomLines = wrappedBottomText.split('\n').filter(line => line.trim());
             const maxLines = Math.max(topLines.length, bottomLines.length, 1);
             
             // Adjust font size calculation to be more conservative
-            const baseDivisor = 14; // Increased from 12 for smaller default size
+            const baseDivisor = 14;
             const verticalCompressionFactor = 2;
             const dynamicDivisor = baseDivisor + ((maxLines - 1) * verticalCompressionFactor);
             
@@ -365,21 +365,17 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
                 }
             }
 
-            // Add BOTTOM text with proper padding
+            // Add BOTTOM text with simpler positioning (matching second code)
             if (bottomText) {
-                // Calculate total height needed for bottom text including all padding
+                // Calculate total height needed for bottom text
                 const totalBottomTextHeight = bottomLines.length * lineHeight;
-                const strokePadding = strokeWidth * 2; // Account for stroke extending beyond text
-                const shadowPadding = 4; // Account for shadow effect
-                const safetyBuffer = 80; // INCREASED: Very conservative margin to prevent any cropping
-                
-                const totalBottomReservedSpace = totalBottomTextHeight + strokePadding + shadowPadding + safetyBuffer;
+                const bottomOffset = verticalPadding;
                 
                 for (let index = 0; index < bottomLines.length; index++) {
                     const line = bottomLines[index];
                     const escapedLine = escapeForDrawtext(line);
-                    // Position from bottom: video height - padding - total text block height + line offset
-                    const yPos = height - verticalPadding - totalBottomReservedSpace + (index * lineHeight);
+                    // Position from bottom: video height - total text block height - offset + line offset
+                    const yPos = height - totalBottomTextHeight - bottomOffset + (index * lineHeight);
                     const nextLabel = `v${labelCounter}`;
                     
                     filterParts.push(
@@ -447,7 +443,7 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
 
 /**
  * Adds meme text with overlay and branding
- * FIXED: Ensures text stays within frame bounds and doesn't overlap with overlay
+ * FIXED: Bottom text position matches second code's simpler, lower positioning
  */
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "", projectName = "", memeLanguage = null) {
     return new Promise(async (resolve, reject) => {
@@ -462,15 +458,15 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const { width, height } = await getVideoDimensions(videoPath);
             console.log(`📐 Video dimensions: ${width}x${height}`);
 
-            const wrappedTopText = wrapText(topText, 35); // Reduced for better wrapping
-            const wrappedBottomText = wrapText(bottomText, 35); // Reduced for better wrapping
+            const wrappedTopText = wrapText(topText, 35);
+            const wrappedBottomText = wrapText(bottomText, 35);
             
             const topLines = wrappedTopText.split('\n').filter(line => line.trim());
             const bottomLines = wrappedBottomText.split('\n').filter(line => line.trim());
             const maxLines = needsMemeText ? Math.max(topLines.length, bottomLines.length, 1) : 1;
             
             // Adjust font size calculation to be more conservative
-            const baseDivisor = 14; // Increased from 12 for smaller default size
+            const baseDivisor = 14;
             const verticalCompressionFactor = 2;
             const dynamicDivisor = baseDivisor + ((maxLines - 1) * verticalCompressionFactor);
             
@@ -563,21 +559,16 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 }
             }
 
-            // Add BOTTOM text - position above the black bar with proper padding
+            // Add BOTTOM text with simpler positioning (matching second code)
             if (needsMemeText && bottomText) {
-                // Calculate total height needed for bottom text including all padding
+                // Calculate total height needed for bottom text
                 const totalBottomTextHeight = bottomLines.length * lineHeight;
-                const strokePadding = strokeWidth * 2; // Account for stroke extending beyond text
-                const shadowPadding = 4; // Account for shadow effect
-                const safetyBuffer = 80; // INCREASED: Very conservative margin to prevent any cropping
-                
-                const totalBottomReservedSpace = totalBottomTextHeight + strokePadding + shadowPadding + safetyBuffer;
                 
                 for (let index = 0; index < bottomLines.length; index++) {
                     const line = bottomLines[index];
                     const escapedLine = escapeForDrawtext(line);
-                    // Position from bottom with black bar clearance
-                    const yPos = height - bottomPadding - totalBottomReservedSpace + (index * lineHeight);
+                    // Position from bottom with black bar clearance - simpler calculation like second code
+                    const yPos = height - totalBottomTextHeight - bottomPadding + (index * lineHeight);
                     const nextLabel = `v${labelCounter}`;
                     
                     filterParts.push(
