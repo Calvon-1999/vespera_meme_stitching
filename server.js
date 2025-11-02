@@ -22,7 +22,7 @@ const FONTS = {
 };
 
 // Overlay Image Configuration
-const OVERLAY_IMAGE_PATH = path.join(__dirname, "image", "1248x704.png");
+const OVERLAY_IMAGE_PATH = path.join(__dirname, "image", "blackbarlucien.png");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
