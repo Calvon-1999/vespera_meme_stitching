@@ -316,7 +316,7 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
             const lineHeight = Math.floor(fontSize * 1.3); // 30% extra space between lines
             
             // FIXED: Much more generous padding to prevent any cropping
-            const verticalPadding = Math.floor(height * 0.08); // 8% of video height as padding
+            const verticalPadding = Math.floor(height * 0.04); // 4% of video height as padding
             
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
@@ -475,7 +475,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const lineHeight = Math.floor(fontSize * 1.3); // 30% extra space between lines
             
             // FIXED: Much more generous padding
-            const topPadding = Math.floor(height * 0.08); // 8% of video height
+            const topPadding = Math.floor(height * 0.04); // 4% of video height
             
             // Black bar configuration
             const estimatedBlackBarHeight = 100;
