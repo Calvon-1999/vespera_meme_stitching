@@ -295,7 +295,7 @@ async function concatenateVideos(videoPaths, outputPath) {
             
             // Check which videos have audio
             const videoHasAudio = await Promise.all(
-                videoPaths.map(videoPath => 
+                videoPaths.map(videoPath =>
                     new Promise((res) => {
                         ffmpeg.ffprobe(videoPath, (err, metadata) => {
                             if (err) {
@@ -327,8 +327,8 @@ async function concatenateVideos(videoPaths, outputPath) {
             if (allHaveAudio) {
                 // All videos have audio - use normal concat with audio
                 console.log('✅ All videos have audio - concatenating with audio');
-                filterComplex = videoPaths.map((_, i) => `[${i}:v:0][${i}:a:0]`).join('') + 
-                               `concat=n=${videoPaths.length}:v=1:a=1[outv][outa]`;
+                filterComplex = videoPaths.map((_, i) => `[${i}:v:0][${i}:a:0]`).join('') +
+                                `concat=n=${videoPaths.length}:v=1:a=1[outv][outa]`;
                 outputOptions = [
                     '-map', '[outv]',
                     '-map', '[outa]',
@@ -368,8 +368,8 @@ async function concatenateVideos(videoPaths, outputPath) {
             } else {
                 // No videos have audio - concat video only
                 console.log('⚠️  No audio streams - concatenating video only');
-                filterComplex = videoPaths.map((_, i) => `[${i}:v:0]`).join('') + 
-                               `concat=n=${videoPaths.length}:v=1:a=0[outv]`;
+                filterComplex = videoPaths.map((_, i) => `[${i}:v:0]`).join('') +
+                                `concat=n=${videoPaths.length}:v=1:a=0[outv]`;
                 outputOptions = [
                     '-map', '[outv]',
                     '-c:v', 'libx264',
@@ -399,7 +399,7 @@ async function concatenateVideos(videoPaths, outputPath) {
                     reject(err);
                 })
                 .run();
-                
+            
         } catch (err) {
             console.error('❌ Error in concatenateVideos:', err);
             reject(err);
@@ -431,7 +431,7 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
             const brandingX = 20;
             const brandingY = height - brandingFontSize - 20;
 
-            const filterComplex = 
+            const filterComplex =
                 `[0:v]drawtext=fontfile='${escapedFont}':` +
                 `text='${escapedBrandingText}':` +
                 `fontcolor=white:` +
@@ -1120,6 +1120,7 @@ async function processVideoRequest(req, res) {
                 });
                 
                 // Re-encode outro with exact same settings and scale to match main video dimensions
+                // IMPORTANT: Audio reduced to -10dB as requested
                 await new Promise((resolve, reject) => {
                     ffmpeg(LUCIEN_OUTRO_PATH)
                         .videoCodec('libx264')
@@ -1141,6 +1142,12 @@ async function processVideoRequest(req, res) {
                                 options: '1'
                             }
                         ])
+                        .audioFilters([
+                            {
+                                filter: 'volume',
+                                options: '-10dB'
+                            }
+                        ])
                         .outputOptions([
                             '-preset', 'fast',
                             '-crf', '18',
@@ -1149,7 +1156,7 @@ async function processVideoRequest(req, res) {
                         ])
                         .output(recodedOutroPath)
                         .on('end', () => {
-                            console.log('✅ Outro video re-encoded and scaled');
+                            console.log('✅ Outro video re-encoded and scaled (audio at -10dB)');
                             resolve();
                         })
                         .on('error', (err) => {
@@ -1214,7 +1221,7 @@ async function processVideoRequest(req, res) {
                 
                 return res.json({
                     success: true,
-                    message: "Pudgy video created with music and outro (no branding)",
+                    message: "Pudgy video created with music and outro (audio at -10dB)",
                     processing_time: `${duration}s`,
                     job_id: id,
                     download: `/download/${path.basename(outputPath)}`
