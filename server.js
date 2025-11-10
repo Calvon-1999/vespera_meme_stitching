@@ -875,8 +875,8 @@ async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
                 if (audioLabels.length > 1) {
                     // Multiple audio sources - use amix to overlay (not amerge which causes silence)
                     filterComplex = audioInputs.join(';');
-                    // amix allows tracks to overlap, so music continues when dialogue ends
-                    filterComplex += `;${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0[outa]`;
+                    // CRITICAL: Use duration=first to match video duration, not longest which extends it
+                    filterComplex += `;${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=first:dropout_transition=0[outa]`;
                 } else if (audioLabels.length === 1) {
                     // Only one audio source
                     const label = audioLabels[0].replace('[', '').replace(']', '');
