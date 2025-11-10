@@ -281,6 +281,126 @@ function escapeForDrawtext(text) {
 }
 
 /**
+ * Concatenates multiple videos into one
+ */
+async function concatenateVideos(videoPaths, outputPath) {
+    return new Promise((resolve, reject) => {
+        console.log('🔗 Concatenating videos...');
+        console.log(`   Number of videos: ${videoPaths.length}`);
+        
+        const command = ffmpeg();
+        
+        // Add all input videos
+        videoPaths.forEach(videoPath => {
+            command.input(videoPath);
+        });
+        
+        // Create filter complex for concatenation
+        const filterComplex = videoPaths.map((_, i) => `[${i}:v:0][${i}:a:0]`).join('') + 
+                             `concat=n=${videoPaths.length}:v=1:a=1[outv][outa]`;
+        
+        command
+            .complexFilter(filterComplex)
+            .outputOptions([
+                '-map', '[outv]',
+                '-map', '[outa]',
+                '-c:v', 'libx264',
+                '-preset', 'fast',
+                '-crf', '18',
+                '-c:a', 'aac',
+                '-b:a', '192k'
+            ])
+            .output(outputPath)
+            .on('start', (cmd) => console.log('🚀 FFmpeg concatenation started'))
+            .on('progress', (progress) => {
+                if (progress.percent) {
+                    console.log(`⏳ Concatenation progress: ${progress.percent.toFixed(1)}%`);
+                }
+            })
+            .on('end', () => {
+                console.log('✅ Videos concatenated successfully');
+                resolve(outputPath);
+            })
+            .on('error', (err) => {
+                console.error('❌ FFmpeg concatenation error:', err.message);
+                reject(err);
+            })
+            .run();
+    });
+}
+
+/**
+ * Adds branding text to video (bottom-left corner)
+ * For Pudgy projects - no overlay, no meme text, just brand
+ */
+async function addBrandingOnly(videoPath, outputPath, projectName) {
+    return new Promise(async (resolve, reject) => {
+        try {
+            console.log('🏷️  Adding branding only');
+            
+            const { width, height } = await getVideoDimensions(videoPath);
+            console.log(`📐 Video dimensions: ${width}x${height}`);
+
+            // Use English font for branding
+            const selectedFont = FONTS.english;
+            const escapedFont = selectedFont.replace(/:/g, '\\:');
+
+            // Add luna.fun branding at bottom-left corner
+            const brandingText = `luna.fun/memes/${projectName}`;
+            const escapedBrandingText = escapeForDrawtext(brandingText);
+            const brandingFontSize = 18;
+            const brandingStrokeWidth = 1;
+            const brandingX = 20;
+            const brandingY = height - brandingFontSize - 20;
+
+            const filterComplex = 
+                `[0:v]drawtext=fontfile='${escapedFont}':` +
+                `text='${escapedBrandingText}':` +
+                `fontcolor=white:` +
+                `fontsize=${brandingFontSize}:` +
+                `bordercolor=black:` +
+                `borderw=${brandingStrokeWidth}:` +
+                `shadowcolor=black@0.5:` +
+                `shadowx=2:` +
+                `shadowy=2:` +
+                `x=${brandingX}:` +
+                `y=${brandingY}[outv]`;
+
+            ffmpeg(videoPath)
+                .complexFilter(filterComplex)
+                .outputOptions([
+                    '-map', '[outv]',
+                    '-map', '0:a?',
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '18',
+                    '-c:a', 'copy'
+                ])
+                .output(outputPath)
+                .on('start', (cmd) => console.log('🚀 FFmpeg branding started'))
+                .on('progress', (progress) => {
+                    if (progress.percent) {
+                        console.log(`⏳ Branding progress: ${progress.percent.toFixed(1)}%`);
+                    }
+                })
+                .on('end', () => {
+                    console.log('✅ Branding added successfully');
+                    resolve(outputPath);
+                })
+                .on('error', (err) => {
+                    console.error('❌ FFmpeg branding error:', err.message);
+                    reject(err);
+                })
+                .run();
+
+        } catch (err) {
+            console.error('❌ Error in addBrandingOnly:', err);
+            reject(err);
+        }
+    });
+}
+
+/**
  * Adds only the top and bottom meme text to video (no overlay, no branding)
  * Used for the "without overlay" version
  * FIXED: Bottom text position matches second code's simpler, lower positioning
@@ -811,131 +931,235 @@ async function processVideoRequest(req, res) {
     try {
         await ensureDirectories();
 
-        const {
-            final_stitched_video,
-            final_stitch_video, // Alternative parameter name
-            final_dialogue,
-            final_music_url,
-            meme_top_text,
-            meme_bottom_text,
-            meme_project_name,
-            meme_language
-        } = req.body;
+        // Check if this is a Pudgy project format
+        let isPudgyProject = false;
+        let videoUrl, musicUrl, projectName;
         
-        // FIXED: Support both parameter names
-        const videoUrl = final_stitched_video || final_stitch_video;
-
-        console.log('📋 Request parameters:');
-        console.log('   Video URL:', videoUrl ? '✅' : '❌');
-        console.log('   Audio URL:', final_dialogue ? '✅' : '❌');
-        console.log('   Music URL:', final_music_url ? '✅' : '❌');
-        console.log('   Top text:', meme_top_text || '(none)');
-        console.log('   Bottom text:', meme_bottom_text || '(none)');
-        console.log('   Project name:', meme_project_name || '(none)');
-        console.log('   Language:', meme_language || '(auto-detect)');
-
-        if (!videoUrl) {
-            console.error('❌ Missing video URL');
-            return res.status(400).json({ error: "Missing required input: final_stitched_video or final_stitch_video" });
+        if (Array.isArray(req.body) && req.body.length > 0 && req.body[0].data) {
+            // Pudgy project format
+            const data = req.body[0].data;
+            if (data.length > 0 && data[0].meme_project_name === 'Pudgy') {
+                isPudgyProject = true;
+                projectName = data[0].meme_project_name;
+                
+                // Get music from scene 1
+                const scene1 = data.find(scene => scene.scene_number === 1);
+                musicUrl = scene1?.generated_music;
+                
+                console.log('🎯 Pudgy project detected!');
+                console.log('📋 Pudgy Request parameters:');
+                console.log('   Project name:', projectName);
+                console.log('   Music URL (from scene 1):', musicUrl ? '✅' : '❌');
+                console.log('   Number of scenes:', data.length);
+                
+                // Validate we have all 3 scenes
+                if (data.length !== 3) {
+                    console.error('❌ Pudgy project must have exactly 3 scenes');
+                    return res.status(400).json({ error: "Pudgy project must have exactly 3 scenes" });
+                }
+                
+                // Validate all scenes have video URLs
+                for (const scene of data) {
+                    if (!scene.generated_video) {
+                        console.error(`❌ Missing video URL for scene ${scene.scene_number}`);
+                        return res.status(400).json({ error: `Missing video URL for scene ${scene.scene_number}` });
+                    }
+                }
+                
+                // Generate unique ID for this processing job
+                const id = uuidv4();
+                console.log('🆔 Job ID:', id);
+                
+                // Download all scene videos
+                console.log('\n📥 Downloading Pudgy scene videos...');
+                const sceneVideoPaths = [];
+                for (const scene of data) {
+                    const scenePath = path.join(TEMP_DIR, `${id}_scene${scene.scene_number}.mp4`);
+                    await downloadFile(scene.generated_video, scenePath);
+                    sceneVideoPaths.push(scenePath);
+                }
+                
+                // Download music if available
+                let musicPath = null;
+                if (musicUrl) {
+                    musicPath = path.join(TEMP_DIR, `${id}_music.mp3`);
+                    await downloadFile(musicUrl, musicPath);
+                }
+                
+                // Concatenate all videos
+                console.log('\n🔗 Stitching scene videos together...');
+                const stitchedVideoPath = path.join(TEMP_DIR, `${id}_stitched.mp4`);
+                await concatenateVideos(sceneVideoPaths, stitchedVideoPath);
+                
+                // Add branding (bottom left: luna.fun/memes/Pudgy)
+                console.log('\n🏷️  Adding branding...');
+                const videoWithBrandingPath = path.join(TEMP_DIR, `${id}_with_branding.mp4`);
+                await addBrandingOnly(stitchedVideoPath, videoWithBrandingPath, projectName);
+                
+                // Add music overlay if available
+                const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
+                if (musicPath) {
+                    console.log('\n🎵 Adding music overlay...');
+                    await mixVideo(videoWithBrandingPath, null, musicPath, outputPath);
+                } else {
+                    await fsp.copyFile(videoWithBrandingPath, outputPath);
+                }
+                
+                // Clean up temporary files
+                console.log('\n🧹 Cleaning up temporary files...');
+                try {
+                    for (const scenePath of sceneVideoPaths) {
+                        await fsp.unlink(scenePath);
+                    }
+                    if (musicPath) await fsp.unlink(musicPath);
+                    await fsp.unlink(stitchedVideoPath);
+                    await fsp.unlink(videoWithBrandingPath);
+                } catch (cleanupErr) {
+                    console.warn('⚠️  Cleanup warning:', cleanupErr.message);
+                }
+                
+                const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+                console.log(`\n✅ Pudgy video processing complete in ${duration}s`);
+                console.log('========================================\n');
+                
+                return res.json({
+                    success: true,
+                    message: "Pudgy video created with branding and music",
+                    processing_time: `${duration}s`,
+                    job_id: id,
+                    download: `/download/${path.basename(outputPath)}`
+                });
+            }
         }
-
-        // Generate unique ID for this processing job
-        const id = uuidv4();
-        console.log('🆔 Job ID:', id);
-
-        // Define file paths
-        const videoPath = path.join(TEMP_DIR, `${id}_video.mp4`);
-        const dialoguePath = final_dialogue ? path.join(TEMP_DIR, `${id}_dialogue.mp3`) : null;
-        const musicPath = final_music_url ? path.join(TEMP_DIR, `${id}_music.mp3`) : null;
-        const videoWithTextPath = path.join(TEMP_DIR, `${id}_with_text.mp4`);
-        const videoWithTextNoOverlayPath = path.join(TEMP_DIR, `${id}_with_text_no_overlay.mp4`);
-        const outputPathWithOverlay = path.join(OUTPUT_DIR, `${id}_with_overlay.mp4`);
-        const outputPathWithoutOverlay = path.join(OUTPUT_DIR, `${id}_without_overlay.mp4`);
-
-        // Determine if meme text is needed
-        const needsMemeText = (meme_top_text || meme_bottom_text) ? true : false;
         
-        console.log('🔍 Processing Plan:');
-        console.log('   Needs meme text:', needsMemeText);
-        console.log('   Has audio/music:', !!(final_dialogue || final_music_url));
+        if (!isPudgyProject) {
+            // Original format
+            const {
+                final_stitched_video,
+                final_stitch_video, // Alternative parameter name
+                final_dialogue,
+                final_music_url,
+                meme_top_text,
+                meme_bottom_text,
+                meme_project_name,
+                meme_language
+            } = req.body;
+            
+            // FIXED: Support both parameter names
+            videoUrl = final_stitched_video || final_stitch_video;
 
-        // Download video
-        console.log('\n📥 Downloading assets...');
-        await downloadFile(videoUrl, videoPath);
+            console.log('📋 Request parameters:');
+            console.log('   Video URL:', videoUrl ? '✅' : '❌');
+            console.log('   Audio URL:', final_dialogue ? '✅' : '❌');
+            console.log('   Music URL:', final_music_url ? '✅' : '❌');
+            console.log('   Top text:', meme_top_text || '(none)');
+            console.log('   Bottom text:', meme_bottom_text || '(none)');
+            console.log('   Project name:', meme_project_name || '(none)');
+            console.log('   Language:', meme_language || '(auto-detect)');
 
-        // Download audio files if provided
-        if (final_dialogue) {
-            await downloadFile(final_dialogue, dialoguePath);
-        }
-        if (final_music_url) {
-            await downloadFile(final_music_url, musicPath);
-        }
+            if (!videoUrl) {
+                console.error('❌ Missing video URL');
+                return res.status(400).json({ error: "Missing required input: final_stitched_video or final_stitch_video" });
+            }
 
-        // Generate both versions: with and without overlay
-        console.log('\n🎬 Generating both versions...');
-        
-        // Version 1: Without overlay - add meme text only (no overlay, no branding)
-        if (needsMemeText) {
-            console.log('📦 Creating version without overlay (with meme text)...');
-            await addMemeTextOnly(videoPath, videoWithTextNoOverlayPath, meme_top_text, meme_bottom_text, meme_language);
+            // Generate unique ID for this processing job
+            const id = uuidv4();
+            console.log('🆔 Job ID:', id);
+
+            // Define file paths
+            const videoPath = path.join(TEMP_DIR, `${id}_video.mp4`);
+            const dialoguePath = final_dialogue ? path.join(TEMP_DIR, `${id}_dialogue.mp3`) : null;
+            const musicPath = final_music_url ? path.join(TEMP_DIR, `${id}_music.mp3`) : null;
+            const videoWithTextPath = path.join(TEMP_DIR, `${id}_with_text.mp4`);
+            const videoWithTextNoOverlayPath = path.join(TEMP_DIR, `${id}_with_text_no_overlay.mp4`);
+            const outputPathWithOverlay = path.join(OUTPUT_DIR, `${id}_with_overlay.mp4`);
+            const outputPathWithoutOverlay = path.join(OUTPUT_DIR, `${id}_without_overlay.mp4`);
+
+            // Determine if meme text is needed
+            const needsMemeText = (meme_top_text || meme_bottom_text) ? true : false;
+            
+            console.log('🔍 Processing Plan:');
+            console.log('   Needs meme text:', needsMemeText);
+            console.log('   Has audio/music:', !!(final_dialogue || final_music_url));
+
+            // Download video
+            console.log('\n📥 Downloading assets...');
+            await downloadFile(videoUrl, videoPath);
+
+            // Download audio files if provided
+            if (final_dialogue) {
+                await downloadFile(final_dialogue, dialoguePath);
+            }
+            if (final_music_url) {
+                await downloadFile(final_music_url, musicPath);
+            }
+
+            // Generate both versions: with and without overlay
+            console.log('\n🎬 Generating both versions...');
+            
+            // Version 1: Without overlay - add meme text only (no overlay, no branding)
+            if (needsMemeText) {
+                console.log('📦 Creating version without overlay (with meme text)...');
+                await addMemeTextOnly(videoPath, videoWithTextNoOverlayPath, meme_top_text, meme_bottom_text, meme_language);
+                
+                if (final_dialogue || final_music_url) {
+                    await mixVideo(videoWithTextNoOverlayPath, dialoguePath, musicPath, outputPathWithoutOverlay);
+                } else {
+                    await fsp.copyFile(videoWithTextNoOverlayPath, outputPathWithoutOverlay);
+                }
+            } else {
+                console.log('📦 Creating version without overlay (no meme text)...');
+                if (final_dialogue || final_music_url) {
+                    await mixVideo(videoPath, dialoguePath, musicPath, outputPathWithoutOverlay);
+                } else {
+                    await fsp.copyFile(videoPath, outputPathWithoutOverlay);
+                }
+            }
+
+            // Version 2: With overlay (meme text + overlay + branding)
+            console.log('🎨 Creating version with overlay and branding...');
+            await addMemeText(videoPath, videoWithTextPath, meme_top_text, meme_bottom_text, meme_project_name, meme_language);
             
             if (final_dialogue || final_music_url) {
-                await mixVideo(videoWithTextNoOverlayPath, dialoguePath, musicPath, outputPathWithoutOverlay);
+                await mixVideo(videoWithTextPath, dialoguePath, musicPath, outputPathWithOverlay);
             } else {
-                await fsp.copyFile(videoWithTextNoOverlayPath, outputPathWithoutOverlay);
+                await fsp.copyFile(videoWithTextPath, outputPathWithOverlay);
             }
-        } else {
-            console.log('📦 Creating version without overlay (no meme text)...');
-            if (final_dialogue || final_music_url) {
-                await mixVideo(videoPath, dialoguePath, musicPath, outputPathWithoutOverlay);
-            } else {
-                await fsp.copyFile(videoPath, outputPathWithoutOverlay);
+
+            // Clean up temporary files
+            console.log('\n🧹 Cleaning up temporary files...');
+            try {
+                await fsp.unlink(videoPath);
+                if (dialoguePath) await fsp.unlink(dialoguePath);
+                if (musicPath) await fsp.unlink(musicPath);
+                if (needsMemeText) {
+                    await fsp.unlink(videoWithTextPath);
+                    await fsp.unlink(videoWithTextNoOverlayPath);
+                } else {
+                    await fsp.unlink(videoWithTextPath);
+                }
+            } catch (cleanupErr) {
+                console.warn('⚠️  Cleanup warning:', cleanupErr.message);
             }
+
+            const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+            console.log(`\n✅ Processing complete in ${duration}s`);
+            console.log('========================================\n');
+
+            // Prepare response with both outputs
+            const response = {
+                success: true,
+                message: "Two videos created: one with branding/overlay and one without",
+                processing_time: `${duration}s`,
+                job_id: id,
+                downloads: {
+                    without_overlay: `/download/${path.basename(outputPathWithoutOverlay)}`,
+                    with_overlay: `/download/${path.basename(outputPathWithOverlay)}`
+                }
+            };
+
+            res.json(response);
         }
-
-        // Version 2: With overlay (meme text + overlay + branding)
-        console.log('🎨 Creating version with overlay and branding...');
-        await addMemeText(videoPath, videoWithTextPath, meme_top_text, meme_bottom_text, meme_project_name, meme_language);
-        
-        if (final_dialogue || final_music_url) {
-            await mixVideo(videoWithTextPath, dialoguePath, musicPath, outputPathWithOverlay);
-        } else {
-            await fsp.copyFile(videoWithTextPath, outputPathWithOverlay);
-        }
-
-        // Clean up temporary files
-        console.log('\n🧹 Cleaning up temporary files...');
-        try {
-            await fsp.unlink(videoPath);
-            if (dialoguePath) await fsp.unlink(dialoguePath);
-            if (musicPath) await fsp.unlink(musicPath);
-            if (needsMemeText) {
-                await fsp.unlink(videoWithTextPath);
-                await fsp.unlink(videoWithTextNoOverlayPath);
-            } else {
-                await fsp.unlink(videoWithTextPath);
-            }
-        } catch (cleanupErr) {
-            console.warn('⚠️  Cleanup warning:', cleanupErr.message);
-        }
-
-        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        console.log(`\n✅ Processing complete in ${duration}s`);
-        console.log('========================================\n');
-
-        // Prepare response with both outputs
-        const response = {
-            success: true,
-            message: "Two videos created: one with branding/overlay and one without",
-            processing_time: `${duration}s`,
-            job_id: id,
-            downloads: {
-                without_overlay: `/download/${path.basename(outputPathWithoutOverlay)}`,
-                with_overlay: `/download/${path.basename(outputPathWithOverlay)}`
-            }
-        };
-
-        res.json(response);
 
     } catch (err) {
         console.error('\n❌ PROCESSING FAILED');
