@@ -1084,55 +1084,113 @@ async function processVideoRequest(req, res) {
                     await fsp.copyFile(stitchedVideoPath, videoWithMusicPath);
                 }
                 
-                // Normalize audio format before concatenation to avoid audio stream mismatch
-                console.log('\n🔧 Normalizing audio formats for concatenation...');
-                const normalizedVideoPath = path.join(TEMP_DIR, `${id}_normalized.mp4`);
-                const normalizedOutroPath = path.join(TEMP_DIR, `${id}_outro_normalized.mp4`);
+                // Get dimensions and properties of the video with music
+                const videoProps = await getVideoDimensions(videoWithMusicPath);
+                console.log(`📐 Main video dimensions: ${videoProps.width}x${videoProps.height}`);
                 
+                // Re-encode both videos to ensure perfect compatibility
+                console.log('\n🔧 Re-encoding videos for compatibility...');
+                const recodedVideoPath = path.join(TEMP_DIR, `${id}_recoded.mp4`);
+                const recodedOutroPath = path.join(TEMP_DIR, `${id}_outro_recoded.mp4`);
+                
+                // Re-encode main video with consistent settings
                 await new Promise((resolve, reject) => {
                     ffmpeg(videoWithMusicPath)
+                        .videoCodec('libx264')
+                        .audioCodec('aac')
+                        .audioChannels(2)
+                        .audioFrequency(48000)
+                        .audioBitrate('192k')
                         .outputOptions([
-                            '-c:v', 'libx264',
                             '-preset', 'fast',
                             '-crf', '18',
-                            '-c:a', 'aac',
-                            '-ar', '48000',
-                            '-ac', '2',
-                            '-b:a', '192k'
+                            '-pix_fmt', 'yuv420p',
+                            '-r', '30'
                         ])
-                        .output(normalizedVideoPath)
+                        .output(recodedVideoPath)
                         .on('end', () => {
-                            console.log('✅ Scenes video normalized');
+                            console.log('✅ Main video re-encoded');
                             resolve();
                         })
-                        .on('error', reject)
+                        .on('error', (err) => {
+                            console.error('❌ Main video re-encode error:', err.message);
+                            reject(err);
+                        })
                         .run();
                 });
                 
+                // Re-encode outro with exact same settings and scale to match main video dimensions
                 await new Promise((resolve, reject) => {
                     ffmpeg(LUCIEN_OUTRO_PATH)
+                        .videoCodec('libx264')
+                        .audioCodec('aac')
+                        .audioChannels(2)
+                        .audioFrequency(48000)
+                        .audioBitrate('192k')
+                        .videoFilters([
+                            {
+                                filter: 'scale',
+                                options: `${videoProps.width}:${videoProps.height}:force_original_aspect_ratio=decrease`
+                            },
+                            {
+                                filter: 'pad',
+                                options: `${videoProps.width}:${videoProps.height}:(ow-iw)/2:(oh-ih)/2`
+                            },
+                            {
+                                filter: 'setsar',
+                                options: '1'
+                            }
+                        ])
                         .outputOptions([
-                            '-c:v', 'libx264',
                             '-preset', 'fast',
                             '-crf', '18',
-                            '-c:a', 'aac',
-                            '-ar', '48000',
-                            '-ac', '2',
-                            '-b:a', '192k'
+                            '-pix_fmt', 'yuv420p',
+                            '-r', '30'
                         ])
-                        .output(normalizedOutroPath)
+                        .output(recodedOutroPath)
                         .on('end', () => {
-                            console.log('✅ Outro video normalized');
+                            console.log('✅ Outro video re-encoded and scaled');
                             resolve();
                         })
-                        .on('error', reject)
+                        .on('error', (err) => {
+                            console.error('❌ Outro re-encode error:', err.message);
+                            reject(err);
+                        })
                         .run();
                 });
                 
-                // Concatenate the normalized videos
-                console.log('\n🎬 Adding LucienOutro.mp4 at the end...');
+                // Use concat demuxer for reliable concatenation
+                console.log('\n🎬 Concatenating with demuxer method...');
+                const concatListPath = path.join(TEMP_DIR, `${id}_concat_list.txt`);
+                const concatListContent = `file '${recodedVideoPath}'\nfile '${recodedOutroPath}'`;
+                await fsp.writeFile(concatListPath, concatListContent);
+                
                 const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
-                await concatenateVideos([normalizedVideoPath, normalizedOutroPath], outputPath);
+                
+                await new Promise((resolve, reject) => {
+                    ffmpeg()
+                        .input(concatListPath)
+                        .inputOptions(['-f', 'concat', '-safe', '0'])
+                        .outputOptions([
+                            '-c', 'copy'
+                        ])
+                        .output(outputPath)
+                        .on('start', (cmd) => console.log('🚀 FFmpeg concat demuxer started'))
+                        .on('progress', (progress) => {
+                            if (progress.percent) {
+                                console.log(`⏳ Concatenation progress: ${progress.percent.toFixed(1)}%`);
+                            }
+                        })
+                        .on('end', () => {
+                            console.log('✅ Videos concatenated successfully with demuxer');
+                            resolve();
+                        })
+                        .on('error', (err) => {
+                            console.error('❌ Concat demuxer error:', err.message);
+                            reject(err);
+                        })
+                        .run();
+                });
                 
                 // Clean up temporary files
                 console.log('\n🧹 Cleaning up temporary files...');
@@ -1143,8 +1201,9 @@ async function processVideoRequest(req, res) {
                     if (musicPath) await fsp.unlink(musicPath);
                     await fsp.unlink(stitchedVideoPath);
                     await fsp.unlink(videoWithMusicPath);
-                    await fsp.unlink(normalizedVideoPath);
-                    await fsp.unlink(normalizedOutroPath);
+                    await fsp.unlink(recodedVideoPath);
+                    await fsp.unlink(recodedOutroPath);
+                    await fsp.unlink(concatListPath);
                 } catch (cleanupErr) {
                     console.warn('⚠️  Cleanup warning:', cleanupErr.message);
                 }
