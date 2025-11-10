@@ -282,7 +282,7 @@ function escapeForDrawtext(text) {
 
 /**
  * Concatenates multiple videos into one
- * Handles videos with or without audio streams
+ * Uses concat demuxer for simplicity and reliability
  */
 async function concatenateVideos(videoPaths, outputPath) {
     return new Promise(async (resolve, reject) => {
@@ -290,120 +290,47 @@ async function concatenateVideos(videoPaths, outputPath) {
             console.log('🔗 Concatenating videos...');
             console.log(`   Number of videos: ${videoPaths.length}`);
             
-            // Check which videos have audio
-            const videoHasAudio = await Promise.all(
-                videoPaths.map(videoPath => 
-                    new Promise((res) => {
-                        ffmpeg.ffprobe(videoPath, (err, metadata) => {
-                            if (err) {
-                                res(false);
-                                return;
-                            }
-                            const audioStream = metadata.streams.find(s => s.codec_type === 'audio');
-                            res(!!audioStream);
-                        });
-                    })
-                )
-            );
+            // Create a temporary concat file list
+            const concatListPath = path.join(TEMP_DIR, `concat_${uuidv4()}.txt`);
+            const concatList = videoPaths.map(p => `file '${p}'`).join('\n');
+            await fsp.writeFile(concatListPath, concatList);
             
-            console.log('🔍 Audio streams present:', videoHasAudio);
+            console.log('📝 Concat list created');
             
-            const allHaveAudio = videoHasAudio.every(has => has);
-            const someHaveAudio = videoHasAudio.some(has => has);
-            
-            const command = ffmpeg();
-            
-            // Add all input videos
-            videoPaths.forEach(videoPath => {
-                command.input(videoPath);
-            });
-            
-            let filterComplex;
-            let outputOptions;
-            
-            if (allHaveAudio) {
-                // All videos have audio - use normal concat with audio
-                console.log('✅ All videos have audio - concatenating with audio');
-                filterComplex = videoPaths.map((_, i) => `[${i}:v:0][${i}:a:0]`).join('') + 
-                               `concat=n=${videoPaths.length}:v=1:a=1[outv][outa]`;
-                outputOptions = [
-                    '-map', '[outv]',
-                    '-map', '[outa]',
-                    '-c:v', 'libx264',
-                    '-preset', 'fast',
-                    '-crf', '18',
-                    '-c:a', 'aac',
-                    '-b:a', '192k'
-                ];
-            } else if (someHaveAudio) {
-                // Some videos have audio - add silent audio to videos without it
-                console.log('⚠️  Mixed audio streams - adding silent audio where needed');
-                let silentAudioFilters = [];
-                let concatInputs = [];
-                
-                // Generate silent audio for videos without audio
-                videoPaths.forEach((_, i) => {
-                    if (videoHasAudio[i]) {
-                        // Video has audio - use as is
-                        concatInputs.push(`[${i}:v:0][${i}:a:0]`);
-                    } else {
-                        // Video has no audio - generate silent audio matching video duration
-                        silentAudioFilters.push(`[${i}:v:0]split[v${i}][v${i}dup]`);
-                        silentAudioFilters.push(`[v${i}dup]anullsrc=channel_layout=stereo:sample_rate=48000[a${i}]`);
-                        concatInputs.push(`[v${i}][a${i}]`);
-                    }
-                });
-                
-                // Build complete filter
-                if (silentAudioFilters.length > 0) {
-                    filterComplex = silentAudioFilters.join(';') + ';' + 
-                                   concatInputs.join('') + 
-                                   `concat=n=${videoPaths.length}:v=1:a=1[outv][outa]`;
-                } else {
-                    filterComplex = concatInputs.join('') + 
-                                   `concat=n=${videoPaths.length}:v=1:a=1[outv][outa]`;
-                }
-                
-                outputOptions = [
-                    '-map', '[outv]',
-                    '-map', '[outa]',
-                    '-c:v', 'libx264',
-                    '-preset', 'fast',
-                    '-crf', '18',
-                    '-c:a', 'aac',
-                    '-b:a', '192k'
-                ];
-            } else {
-                // No videos have audio - concat video only
-                console.log('⚠️  No audio streams - concatenating video only');
-                filterComplex = videoPaths.map((_, i) => `[${i}:v:0]`).join('') + 
-                               `concat=n=${videoPaths.length}:v=1:a=0[outv]`;
-                outputOptions = [
-                    '-map', '[outv]',
-                    '-c:v', 'libx264',
-                    '-preset', 'fast',
-                    '-crf', '18'
-                ];
-            }
-            
-            console.log(`🎬 Filter: ${filterComplex.substring(0, 150)}${filterComplex.length > 150 ? '...' : ''}`);
-            
-            command
-                .complexFilter(filterComplex)
-                .outputOptions(outputOptions)
+            // Use concat demuxer - simpler and more reliable
+            ffmpeg()
+                .input(concatListPath)
+                .inputOptions(['-f', 'concat', '-safe', '0'])
+                .outputOptions([
+                    '-c', 'copy'  // Copy streams without re-encoding for speed
+                ])
                 .output(outputPath)
-                .on('start', (cmd) => console.log('🚀 FFmpeg concatenation started'))
+                .on('start', (cmd) => {
+                    console.log('🚀 FFmpeg concatenation started');
+                })
                 .on('progress', (progress) => {
                     if (progress.percent) {
                         console.log(`⏳ Concatenation progress: ${progress.percent.toFixed(1)}%`);
                     }
                 })
-                .on('end', () => {
+                .on('end', async () => {
                     console.log('✅ Videos concatenated successfully');
+                    // Clean up concat list file
+                    try {
+                        await fsp.unlink(concatListPath);
+                    } catch (err) {
+                        console.warn('⚠️  Could not delete concat list file');
+                    }
                     resolve(outputPath);
                 })
-                .on('error', (err) => {
+                .on('error', async (err) => {
                     console.error('❌ FFmpeg concatenation error:', err.message);
+                    // Clean up concat list file
+                    try {
+                        await fsp.unlink(concatListPath);
+                    } catch (cleanupErr) {
+                        // Ignore cleanup errors
+                    }
                     reject(err);
                 })
                 .run();
@@ -1085,34 +1012,42 @@ async function processVideoRequest(req, res) {
                     await downloadFile(musicUrl, musicPath);
                 }
                 
-                // Concatenate all videos
-                console.log('\n🔗 Stitching scene videos together...');
-                const stitchedVideoPath = path.join(TEMP_DIR, `${id}_stitched.mp4`);
-                await concatenateVideos(sceneVideoPaths, stitchedVideoPath);
+                // First, concatenate ONLY scenes 1-3 (without outro)
+                console.log('\n🔗 Stitching scenes 1-3 together...');
+                const scenesOnlyPath = path.join(TEMP_DIR, `${id}_scenes_only.mp4`);
+                const scenesOnly = sceneVideoPaths.slice(0, 3); // Only scenes 1, 2, 3
+                await concatenateVideos(scenesOnly, scenesOnlyPath);
                 
-                // Add branding (bottom left: luna.fun/memes/Pudgy)
-                console.log('\n🏷️  Adding branding...');
-                const videoWithBrandingPath = path.join(TEMP_DIR, `${id}_with_branding.mp4`);
-                await addBrandingOnly(stitchedVideoPath, videoWithBrandingPath, projectName);
+                // Add branding to scenes 1-3
+                console.log('\n🏷️  Adding branding to scenes...');
+                const scenesWithBrandingPath = path.join(TEMP_DIR, `${id}_scenes_branded.mp4`);
+                await addBrandingOnly(scenesOnlyPath, scenesWithBrandingPath, projectName);
                 
-                // Add music overlay if available
-                const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
+                // Add music overlay to scenes 1-3 if available
+                const scenesWithMusicPath = path.join(TEMP_DIR, `${id}_scenes_with_music.mp4`);
                 if (musicPath) {
-                    console.log('\n🎵 Adding music overlay...');
-                    await mixVideo(videoWithBrandingPath, null, musicPath, outputPath);
+                    console.log('\n🎵 Adding music overlay to scenes 1-3...');
+                    await mixVideo(scenesWithBrandingPath, null, musicPath, scenesWithMusicPath);
                 } else {
-                    await fsp.copyFile(videoWithBrandingPath, outputPath);
+                    await fsp.copyFile(scenesWithBrandingPath, scenesWithMusicPath);
                 }
+                
+                // Now concatenate the scenes (with music) + LucienOutro (with its original audio)
+                console.log('\n🔗 Adding LucienOutro at the end...');
+                const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
+                const finalVideos = [scenesWithMusicPath, outroPath]; // Scenes with music + Outro with original audio
+                await concatenateVideos(finalVideos, outputPath);
                 
                 // Clean up temporary files
                 console.log('\n🧹 Cleaning up temporary files...');
                 try {
-                    for (const scenePath of sceneVideoPaths) {
+                    for (const scenePath of scenesOnly) {
                         await fsp.unlink(scenePath);
                     }
                     if (musicPath) await fsp.unlink(musicPath);
-                    await fsp.unlink(stitchedVideoPath);
-                    await fsp.unlink(videoWithBrandingPath);
+                    await fsp.unlink(scenesOnlyPath);
+                    await fsp.unlink(scenesWithBrandingPath);
+                    await fsp.unlink(scenesWithMusicPath);
                 } catch (cleanupErr) {
                     console.warn('⚠️  Cleanup warning:', cleanupErr.message);
                 }
