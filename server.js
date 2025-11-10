@@ -282,50 +282,125 @@ function escapeForDrawtext(text) {
 
 /**
  * Concatenates multiple videos into one
+ * Handles videos with or without audio streams
  */
 async function concatenateVideos(videoPaths, outputPath) {
-    return new Promise((resolve, reject) => {
-        console.log('🔗 Concatenating videos...');
-        console.log(`   Number of videos: ${videoPaths.length}`);
-        
-        const command = ffmpeg();
-        
-        // Add all input videos
-        videoPaths.forEach(videoPath => {
-            command.input(videoPath);
-        });
-        
-        // Create filter complex for concatenation
-        const filterComplex = videoPaths.map((_, i) => `[${i}:v:0][${i}:a:0]`).join('') + 
-                             `concat=n=${videoPaths.length}:v=1:a=1[outv][outa]`;
-        
-        command
-            .complexFilter(filterComplex)
-            .outputOptions([
-                '-map', '[outv]',
-                '-map', '[outa]',
-                '-c:v', 'libx264',
-                '-preset', 'fast',
-                '-crf', '18',
-                '-c:a', 'aac',
-                '-b:a', '192k'
-            ])
-            .output(outputPath)
-            .on('start', (cmd) => console.log('🚀 FFmpeg concatenation started'))
-            .on('progress', (progress) => {
-                if (progress.percent) {
-                    console.log(`⏳ Concatenation progress: ${progress.percent.toFixed(1)}%`);
-                }
-            })
-            .on('end', () => {
-                console.log('✅ Videos concatenated successfully');
-                resolve(outputPath);
-            })
-            .on('error', (err) => {
-                console.error('❌ FFmpeg concatenation error:', err.message);
-                reject(err);
-            })
-            .run();
+    return new Promise(async (resolve, reject) => {
+        try {
+            console.log('🔗 Concatenating videos...');
+            console.log(`   Number of videos: ${videoPaths.length}`);
+            
+            // Check which videos have audio
+            const videoHasAudio = await Promise.all(
+                videoPaths.map(videoPath => 
+                    new Promise((res) => {
+                        ffmpeg.ffprobe(videoPath, (err, metadata) => {
+                            if (err) {
+                                res(false);
+                                return;
+                            }
+                            const audioStream = metadata.streams.find(s => s.codec_type === 'audio');
+                            res(!!audioStream);
+                        });
+                    })
+                )
+            );
+            
+            console.log('🔍 Audio streams present:', videoHasAudio);
+            
+            const allHaveAudio = videoHasAudio.every(has => has);
+            const someHaveAudio = videoHasAudio.some(has => has);
+            
+            const command = ffmpeg();
+            
+            // Add all input videos
+            videoPaths.forEach(videoPath => {
+                command.input(videoPath);
+            });
+            
+            let filterComplex;
+            let outputOptions;
+            
+            if (allHaveAudio) {
+                // All videos have audio - use normal concat with audio
+                console.log('✅ All videos have audio - concatenating with audio');
+                filterComplex = videoPaths.map((_, i) => `[${i}:v:0][${i}:a:0]`).join('') + 
+                               `concat=n=${videoPaths.length}:v=1:a=1[outv][outa]`;
+                outputOptions = [
+                    '-map', '[outv]',
+                    '-map', '[outa]',
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '18',
+                    '-c:a', 'aac',
+                    '-b:a', '192k'
+                ];
+            } else if (someHaveAudio) {
+                // Some videos have audio - add silent audio to videos without it
+                console.log('⚠️  Mixed audio streams - adding silent audio where needed');
+                let filterParts = [];
+                
+                // Add silent audio to videos without audio
+                videoPaths.forEach((_, i) => {
+                    if (videoHasAudio[i]) {
+                        // Video has audio - use as is
+                        filterParts.push(`[${i}:v:0][${i}:a:0]`);
+                    } else {
+                        // Video has no audio - generate silent audio
+                        filterParts.push(`[${i}:v:0]anullsrc=channel_layout=stereo:sample_rate=48000[silent${i}];[silent${i}]`);
+                    }
+                });
+                
+                filterComplex = filterParts.join('') + `concat=n=${videoPaths.length}:v=1:a=1[outv][outa]`;
+                outputOptions = [
+                    '-map', '[outv]',
+                    '-map', '[outa]',
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '18',
+                    '-c:a', 'aac',
+                    '-b:a', '192k',
+                    '-shortest'
+                ];
+            } else {
+                // No videos have audio - concat video only
+                console.log('⚠️  No audio streams - concatenating video only');
+                filterComplex = videoPaths.map((_, i) => `[${i}:v:0]`).join('') + 
+                               `concat=n=${videoPaths.length}:v=1:a=0[outv]`;
+                outputOptions = [
+                    '-map', '[outv]',
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '18'
+                ];
+            }
+            
+            console.log(`🎬 Filter: ${filterComplex.substring(0, 150)}${filterComplex.length > 150 ? '...' : ''}`);
+            
+            command
+                .complexFilter(filterComplex)
+                .outputOptions(outputOptions)
+                .output(outputPath)
+                .on('start', (cmd) => console.log('🚀 FFmpeg concatenation started'))
+                .on('progress', (progress) => {
+                    if (progress.percent) {
+                        console.log(`⏳ Concatenation progress: ${progress.percent.toFixed(1)}%`);
+                    }
+                })
+                .on('end', () => {
+                    console.log('✅ Videos concatenated successfully');
+                    resolve(outputPath);
+                })
+                .on('error', (err) => {
+                    console.error('❌ FFmpeg concatenation error:', err.message);
+                    reject(err);
+                })
+                .run();
+                
+        } catch (err) {
+            console.error('❌ Error in concatenateVideos:', err);
+            reject(err);
+        }
     });
 }
 
