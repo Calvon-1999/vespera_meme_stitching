@@ -24,6 +24,9 @@ const FONTS = {
 // Overlay Image Configuration
 const OVERLAY_IMAGE_PATH = path.join(__dirname, "image", "1248x704.png");
 
+// Outro Video Configuration
+const LUCIEN_OUTRO_PATH = path.join(__dirname, "video", "LucienOutro.mp4");
+
 const app = express();
 const PORT = process.env.PORT || 8080;
 
@@ -1041,6 +1044,12 @@ async function processVideoRequest(req, res) {
                     }
                 }
                 
+                // Validate that LucienOutro.mp4 exists
+                if (!fs.existsSync(LUCIEN_OUTRO_PATH)) {
+                    console.error(`❌ LucienOutro.mp4 not found at ${LUCIEN_OUTRO_PATH}`);
+                    return res.status(400).json({ error: `LucienOutro.mp4 not found at ${LUCIEN_OUTRO_PATH}` });
+                }
+                
                 // Generate unique ID for this processing job
                 const id = uuidv4();
                 console.log('🆔 Job ID:', id);
@@ -1061,24 +1070,24 @@ async function processVideoRequest(req, res) {
                     await downloadFile(musicUrl, musicPath);
                 }
                 
-                // Concatenate all videos
+                // Concatenate scene 1, 2, 3 videos
                 console.log('\n🔗 Stitching scene videos together...');
                 const stitchedVideoPath = path.join(TEMP_DIR, `${id}_stitched.mp4`);
                 await concatenateVideos(sceneVideoPaths, stitchedVideoPath);
                 
-                // Add branding (bottom left: luna.fun/memes/Pudgy)
-                console.log('\n🏷️  Adding branding...');
-                const videoWithBrandingPath = path.join(TEMP_DIR, `${id}_with_branding.mp4`);
-                await addBrandingOnly(stitchedVideoPath, videoWithBrandingPath, projectName);
-                
-                // Add music overlay if available
-                const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
+                // Add music overlay to stitched scenes if available
+                const videoWithMusicPath = path.join(TEMP_DIR, `${id}_with_music.mp4`);
                 if (musicPath) {
-                    console.log('\n🎵 Adding music overlay...');
-                    await mixVideo(videoWithBrandingPath, null, musicPath, outputPath);
+                    console.log('\n🎵 Adding music overlay to scenes...');
+                    await mixVideo(stitchedVideoPath, null, musicPath, videoWithMusicPath);
                 } else {
-                    await fsp.copyFile(videoWithBrandingPath, outputPath);
+                    await fsp.copyFile(stitchedVideoPath, videoWithMusicPath);
                 }
+                
+                // Concatenate the stitched video (with music) + LucienOutro.mp4
+                console.log('\n🎬 Adding LucienOutro.mp4 at the end...');
+                const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
+                await concatenateVideos([videoWithMusicPath, LUCIEN_OUTRO_PATH], outputPath);
                 
                 // Clean up temporary files
                 console.log('\n🧹 Cleaning up temporary files...');
@@ -1088,7 +1097,7 @@ async function processVideoRequest(req, res) {
                     }
                     if (musicPath) await fsp.unlink(musicPath);
                     await fsp.unlink(stitchedVideoPath);
-                    await fsp.unlink(videoWithBrandingPath);
+                    await fsp.unlink(videoWithMusicPath);
                 } catch (cleanupErr) {
                     console.warn('⚠️  Cleanup warning:', cleanupErr.message);
                 }
@@ -1099,7 +1108,7 @@ async function processVideoRequest(req, res) {
                 
                 return res.json({
                     success: true,
-                    message: "Pudgy video created with branding and music",
+                    message: "Pudgy video created with music and outro (no branding)",
                     processing_time: `${duration}s`,
                     job_id: id,
                     download: `/download/${path.basename(outputPath)}`
@@ -1371,5 +1380,6 @@ app.listen(PORT, () => {
     console.log(`   - Chinese: ${FONTS.chinese}`);
     console.log(`   - Japanese: ${FONTS.japanese}`);
     console.log(`   - Korean: ${FONTS.korean}`);
+    console.log(`🎬 Outro video: ${LUCIEN_OUTRO_PATH}`);
     console.log('========================================\n');
 });
