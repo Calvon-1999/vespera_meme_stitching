@@ -25,7 +25,7 @@ const FONTS = {
 const OVERLAY_IMAGE_PATH = path.join(__dirname, "image", "1248x704.png");
 
 // Outro Video Configuration
-const LUCIEN_OUTRO_PATH = path.join(__dirname, "video", "LucienOutro.mp4");
+const LUCIEN_OUTRO_PATH = path.join(__dirname, "videos", "LucienOutro.mp4");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
