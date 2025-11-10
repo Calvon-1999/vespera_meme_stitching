@@ -343,6 +343,67 @@ async function concatenateVideos(videoPaths, outputPath) {
 }
 
 /**
+ * Concatenates videos with re-encoding to ensure proper duration and compatibility
+ * Use this when videos have different formats/codecs or when duration issues occur
+ */
+async function concatenateVideosWithReencode(videoPaths, outputPath) {
+    return new Promise(async (resolve, reject) => {
+        try {
+            console.log('🔗 Concatenating videos with re-encode...');
+            console.log(`   Number of videos: ${videoPaths.length}`);
+            
+            const command = ffmpeg();
+            
+            // Add all input videos
+            videoPaths.forEach(videoPath => {
+                command.input(videoPath);
+            });
+            
+            // Build filter complex for concatenation with proper re-encoding
+            const filterComplex = videoPaths.map((_, i) => `[${i}:v:0][${i}:a:0]`).join('') + 
+                                 `concat=n=${videoPaths.length}:v=1:a=1[outv][outa]`;
+            
+            console.log('🎬 Using concat filter with re-encode');
+            
+            command
+                .complexFilter(filterComplex)
+                .outputOptions([
+                    '-map', '[outv]',
+                    '-map', '[outa]',
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '18',
+                    '-c:a', 'aac',
+                    '-b:a', '192k',
+                    '-movflags', '+faststart'
+                ])
+                .output(outputPath)
+                .on('start', (cmd) => {
+                    console.log('🚀 FFmpeg concatenation (re-encode) started');
+                })
+                .on('progress', (progress) => {
+                    if (progress.percent) {
+                        console.log(`⏳ Concatenation progress: ${progress.percent.toFixed(1)}%`);
+                    }
+                })
+                .on('end', () => {
+                    console.log('✅ Videos concatenated successfully (re-encoded)');
+                    resolve(outputPath);
+                })
+                .on('error', (err) => {
+                    console.error('❌ FFmpeg concatenation error:', err.message);
+                    reject(err);
+                })
+                .run();
+                
+        } catch (err) {
+            console.error('❌ Error in concatenateVideosWithReencode:', err);
+            reject(err);
+        }
+    });
+}
+
+/**
  * Adds branding text to video (bottom-left corner)
  * For Pudgy projects - no overlay, no meme text, just brand
  */
@@ -1036,7 +1097,7 @@ async function processVideoRequest(req, res) {
                 console.log('\n🔗 Adding LucienOutro at the end...');
                 const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
                 const finalVideos = [scenesWithMusicPath, outroPath]; // Scenes with music + Outro with original audio
-                await concatenateVideos(finalVideos, outputPath);
+                await concatenateVideosWithReencode(finalVideos, outputPath);
                 
                 // Clean up temporary files
                 console.log('\n🧹 Cleaning up temporary files...');
