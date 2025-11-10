@@ -25,7 +25,7 @@ const FONTS = {
 const OVERLAY_IMAGE_PATH = path.join(__dirname, "image", "1248x704.png");
 
 // Outro Video Configuration
-const LUCIEN_OUTRO_PATH = path.join(__dirname, "videos", "LucienOutro.mp4");
+const LUCIEN_OUTRO_PATH = path.join(__dirname, "video", "LucienOutro.mp4");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -1084,10 +1084,55 @@ async function processVideoRequest(req, res) {
                     await fsp.copyFile(stitchedVideoPath, videoWithMusicPath);
                 }
                 
-                // Concatenate the stitched video (with music) + LucienOutro.mp4
+                // Normalize audio format before concatenation to avoid audio stream mismatch
+                console.log('\n🔧 Normalizing audio formats for concatenation...');
+                const normalizedVideoPath = path.join(TEMP_DIR, `${id}_normalized.mp4`);
+                const normalizedOutroPath = path.join(TEMP_DIR, `${id}_outro_normalized.mp4`);
+                
+                await new Promise((resolve, reject) => {
+                    ffmpeg(videoWithMusicPath)
+                        .outputOptions([
+                            '-c:v', 'libx264',
+                            '-preset', 'fast',
+                            '-crf', '18',
+                            '-c:a', 'aac',
+                            '-ar', '48000',
+                            '-ac', '2',
+                            '-b:a', '192k'
+                        ])
+                        .output(normalizedVideoPath)
+                        .on('end', () => {
+                            console.log('✅ Scenes video normalized');
+                            resolve();
+                        })
+                        .on('error', reject)
+                        .run();
+                });
+                
+                await new Promise((resolve, reject) => {
+                    ffmpeg(LUCIEN_OUTRO_PATH)
+                        .outputOptions([
+                            '-c:v', 'libx264',
+                            '-preset', 'fast',
+                            '-crf', '18',
+                            '-c:a', 'aac',
+                            '-ar', '48000',
+                            '-ac', '2',
+                            '-b:a', '192k'
+                        ])
+                        .output(normalizedOutroPath)
+                        .on('end', () => {
+                            console.log('✅ Outro video normalized');
+                            resolve();
+                        })
+                        .on('error', reject)
+                        .run();
+                });
+                
+                // Concatenate the normalized videos
                 console.log('\n🎬 Adding LucienOutro.mp4 at the end...');
                 const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
-                await concatenateVideos([videoWithMusicPath, LUCIEN_OUTRO_PATH], outputPath);
+                await concatenateVideos([normalizedVideoPath, normalizedOutroPath], outputPath);
                 
                 // Clean up temporary files
                 console.log('\n🧹 Cleaning up temporary files...');
@@ -1098,6 +1143,8 @@ async function processVideoRequest(req, res) {
                     if (musicPath) await fsp.unlink(musicPath);
                     await fsp.unlink(stitchedVideoPath);
                     await fsp.unlink(videoWithMusicPath);
+                    await fsp.unlink(normalizedVideoPath);
+                    await fsp.unlink(normalizedOutroPath);
                 } catch (cleanupErr) {
                     console.warn('⚠️  Cleanup warning:', cleanupErr.message);
                 }
