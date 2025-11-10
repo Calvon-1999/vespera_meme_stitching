@@ -1054,6 +1054,19 @@ async function processVideoRequest(req, res) {
                     sceneVideoPaths.push(scenePath);
                 }
                 
+                // Add LucienOutro.mp4 to the end for Pudgy projects
+                const outroPath = path.join(__dirname, "videos", "LucienOutro.mp4");
+                console.log(`🎬 Adding outro video: ${outroPath}`);
+                
+                if (!fs.existsSync(outroPath)) {
+                    console.error('❌ LucienOutro.mp4 not found!');
+                    return res.status(500).json({ error: "Outro video not found at videos/LucienOutro.mp4" });
+                }
+                
+                // Add outro to the list of videos to concatenate
+                sceneVideoPaths.push(outroPath);
+                console.log(`✅ Total videos to stitch: ${sceneVideoPaths.length} (3 scenes + outro)`);
+                
                 // Download music if available
                 let musicPath = null;
                 if (musicUrl) {
