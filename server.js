@@ -338,20 +338,32 @@ async function concatenateVideos(videoPaths, outputPath) {
             } else if (someHaveAudio) {
                 // Some videos have audio - add silent audio to videos without it
                 console.log('⚠️  Mixed audio streams - adding silent audio where needed');
-                let filterParts = [];
+                let silentAudioFilters = [];
+                let concatInputs = [];
                 
-                // Add silent audio to videos without audio
+                // Generate silent audio for videos without audio
                 videoPaths.forEach((_, i) => {
                     if (videoHasAudio[i]) {
                         // Video has audio - use as is
-                        filterParts.push(`[${i}:v:0][${i}:a:0]`);
+                        concatInputs.push(`[${i}:v:0][${i}:a:0]`);
                     } else {
-                        // Video has no audio - generate silent audio
-                        filterParts.push(`[${i}:v:0]anullsrc=channel_layout=stereo:sample_rate=48000[silent${i}];[silent${i}]`);
+                        // Video has no audio - generate silent audio matching video duration
+                        silentAudioFilters.push(`[${i}:v:0]split[v${i}][v${i}dup]`);
+                        silentAudioFilters.push(`[v${i}dup]anullsrc=channel_layout=stereo:sample_rate=48000[a${i}]`);
+                        concatInputs.push(`[v${i}][a${i}]`);
                     }
                 });
                 
-                filterComplex = filterParts.join('') + `concat=n=${videoPaths.length}:v=1:a=1[outv][outa]`;
+                // Build complete filter
+                if (silentAudioFilters.length > 0) {
+                    filterComplex = silentAudioFilters.join(';') + ';' + 
+                                   concatInputs.join('') + 
+                                   `concat=n=${videoPaths.length}:v=1:a=1[outv][outa]`;
+                } else {
+                    filterComplex = concatInputs.join('') + 
+                                   `concat=n=${videoPaths.length}:v=1:a=1[outv][outa]`;
+                }
+                
                 outputOptions = [
                     '-map', '[outv]',
                     '-map', '[outa]',
@@ -359,8 +371,7 @@ async function concatenateVideos(videoPaths, outputPath) {
                     '-preset', 'fast',
                     '-crf', '18',
                     '-c:a', 'aac',
-                    '-b:a', '192k',
-                    '-shortest'
+                    '-b:a', '192k'
                 ];
             } else {
                 // No videos have audio - concat video only
