@@ -464,7 +464,7 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
             const brandingStrokeWidth = 1;
             const brandingX = 20;
             // ADJUSTED: Move down by additional 8px to center on black bar (was -20, now -12)
-            const brandingY = height - brandingFontSize - 12;
+            const brandingY = height - brandingFontSize - 14;
 
             // Split branding into two parts
             const brandingPrefix = 'luna.fun/memes/';
