@@ -486,6 +486,7 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
 
             // Step 1: Add the prefix "luna.fun/memes/" with English font
             // Step 2: Add the project name with appropriate font, positioned after the prefix
+            // IMPORTANT: Both use exact same Y position for perfect vertical alignment
             const filterComplex =
                 `[0:v]drawtext=fontfile='${englishFont}':` +
                 `text='${escapedPrefix}':` +
@@ -497,7 +498,8 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
                 `shadowx=2:` +
                 `shadowy=2:` +
                 `x=${brandingX}:` +
-                `y=${brandingY}[v1];` +
+                `y=${brandingY}:` +
+                `line_spacing=0[v1];` +
                 `[v1]drawtext=fontfile='${escapedProjectFont}':` +
                 `text='${escapedProjectName}':` +
                 `fontcolor=white:` +
@@ -508,7 +510,8 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
                 `shadowx=2:` +
                 `shadowy=2:` +
                 `x=${projectNameX}:` +
-                `y=${brandingY}[outv]`;
+                `y=${brandingY}:` +
+                `line_spacing=0[outv]`;
 
             ffmpeg(videoPath)
                 .complexFilter(filterComplex)
@@ -897,12 +900,14 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 `shadowx=2:` +
                 `shadowy=2:` +
                 `x=${brandingX}:` +
-                `y=${brandingY}[${nextLabel}]`
+                `y=${brandingY}:` +
+                `line_spacing=0[${nextLabel}]`
             );
             
             currentVideoLabel = nextLabel;
             
             // Add project name with appropriate font, positioned after the prefix
+            // IMPORTANT: Use exact same Y position for perfect vertical alignment
             if (projectName) {
                 filterParts.push(
                     `[${currentVideoLabel}]drawtext=fontfile='${escapedProjectFont}':` +
@@ -915,7 +920,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                     `shadowx=2:` +
                     `shadowy=2:` +
                     `x=${projectNameX}:` +
-                    `y=${brandingY}[${finalLabel}]`
+                    `y=${brandingY}:` +
+                    `line_spacing=0[${finalLabel}]`
                 );
             } else {
                 // No project name, just rename the label
