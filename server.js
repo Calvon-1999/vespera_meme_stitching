@@ -463,7 +463,8 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
             const brandingFontSize = 18;
             const brandingStrokeWidth = 1;
             const brandingX = 20;
-            const brandingY = height - brandingFontSize - 20;
+            // ADJUSTED: Move down by additional 8px to center on black bar (was -20, now -12)
+            const brandingY = height - brandingFontSize - 12;
 
             // Split branding into two parts
             const brandingPrefix = 'luna.fun/memes/';
@@ -873,7 +874,8 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const brandingFontSize = 18;
             const brandingStrokeWidth = 1;
             const brandingX = 20;
-            const brandingY = height - brandingFontSize - 20;
+            // ADJUSTED: Move down by additional 8px to center on black bar (was -20, now -12)
+            const brandingY = height - brandingFontSize - 12;
             
             // Calculate approximate width of the prefix "luna.fun/memes/" (15 characters * ~0.6 * fontSize)
             const prefixWidth = Math.floor(brandingPrefix.length * 0.6 * brandingFontSize);
