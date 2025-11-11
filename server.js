@@ -220,10 +220,10 @@ function wrapText(text, maxCharsPerLine = 35) {
         let adjustedMax;
         if (cjkPercentage > 0.5) {
             // Mostly CJK (>50%) - use conservative wrapping
-            adjustedMax = Math.floor(maxCharsPerLine * 0.6);
+            adjustedMax = Math.floor(maxCharsPerLine * 0.7);
         } else {
-            // Mixed language - be more generous to allow English phrases to stay together
-            adjustedMax = Math.floor(maxCharsPerLine * 0.8);
+            // Mixed language - be VERY generous to create wider, fewer lines
+            adjustedMax = Math.floor(maxCharsPerLine * 1.2);
         }
         
         let result = '';
