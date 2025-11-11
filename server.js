@@ -17,7 +17,7 @@ ffmpeg.setFfprobePath(ffprobePath);
 // NOTE: Using Noto Sans SC for Chinese as it has excellent Latin character support
 const FONTS = {
     english: path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf"),
-    chinese: path.join(__dirname, "public", "fonts", "NotoSansSC-Regular.otf"),
+    chinese: path.join(__dirname, "public", "fonts", "NotoSansSC-VariableFont_wght.ttf"),
     japanese: path.join(__dirname, "public", "fonts", "RampartOne-Regular.ttf"),
     korean: path.join(__dirname, "public", "fonts", "Jua-Regular.ttf")
 };
