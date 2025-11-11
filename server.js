@@ -14,9 +14,10 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
 // Font Configuration - Multilingual Support
+// NOTE: Using Noto Sans SC for Chinese as it has excellent Latin character support
 const FONTS = {
     english: path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf"),
-    chinese: path.join(__dirname, "public", "fonts", "ZCOOLKuaiLe-Regular.ttf"),
+    chinese: path.join(__dirname, "public", "fonts", "NotoSansSC-Regular.otf"),
     japanese: path.join(__dirname, "public", "fonts", "RampartOne-Regular.ttf"),
     korean: path.join(__dirname, "public", "fonts", "Jua-Regular.ttf")
 };
@@ -41,6 +42,7 @@ const OUTPUT_DIR = path.join(TEMP_DIR, "output");
  * Detects the primary language of the input text
  * Returns: 'english', 'chinese', 'japanese', or 'korean'
  * FIXED: Now properly handles mixed language text (e.g., English + Chinese)
+ * The Chinese font (Noto Sans SC) supports Latin characters, so mixed text works perfectly
  */
 function detectLanguage(text) {
     if (!text) return 'english';
@@ -76,7 +78,7 @@ function detectLanguage(text) {
         }
     }
     
-    // FIXED: If has CJK characters (any amount), detect as mixed or specific CJK language
+    // If has CJK characters (any amount), detect as mixed or specific CJK language
     if (totalCJKCount === 0) {
         return 'english';
     }
@@ -85,6 +87,7 @@ function detectLanguage(text) {
     const cjkPercentage = totalCJKCount / text.length;
     if (cjkPercentage < 0.5) {
         // Determine which CJK language for mixed text
+        // The CJK font will handle both CJK and Latin characters
         if (koreanCount > chineseCount && koreanCount > japaneseCount) {
             return 'korean'; // Use Korean font for mixed Korean+English
         } else if (japaneseCount > chineseCount) {
@@ -448,6 +451,7 @@ async function concatenateVideos(videoPaths, outputPath) {
 /**
  * Adds branding text to video (bottom-left corner)
  * For Pudgy projects - no overlay, no meme text, just brand
+ * FIXED: Uses appropriate font that supports mixed language (e.g., "CZ老婆")
  */
 async function addBrandingOnly(videoPath, outputPath, projectName) {
     return new Promise(async (resolve, reject) => {
@@ -457,10 +461,6 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
             const { width, height } = await getVideoDimensions(videoPath);
             console.log(`📐 Video dimensions: ${width}x${height}`);
 
-            // Use English font for branding
-            const selectedFont = FONTS.english;
-            const escapedFont = selectedFont.replace(/:/g, '\\:');
-
             // Add luna.fun branding at bottom-left corner
             const brandingText = `luna.fun/memes/${projectName}`;
             const escapedBrandingText = escapeForDrawtext(brandingText);
@@ -468,6 +468,10 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
             const brandingStrokeWidth = 1;
             const brandingX = 20;
             const brandingY = height - brandingFontSize - 20;
+
+            // FIXED: Select font based on project name (which might contain mixed language)
+            const selectedFont = getFontForText(projectName, null);
+            const escapedFont = selectedFont.replace(/:/g, '\\:');
 
             const filterComplex =
                 `[0:v]drawtext=fontfile='${escapedFont}':` +
@@ -520,6 +524,7 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
  * Adds only the top and bottom meme text to video (no overlay, no branding)
  * Used for the "without overlay" version
  * FIXED: Bottom text position matches second code's simpler, lower positioning
+ * FIXED: Uses appropriate font that supports mixed language
  */
 async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText = "", memeLanguage = null) {
     return new Promise(async (resolve, reject) => {
@@ -551,12 +556,12 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
             const strokeWidth = Math.max(2, Math.floor(fontSize / 10));
             const lineHeight = Math.floor(fontSize * 1.3); // 30% extra space between lines
             
-            // FIXED: Much more generous padding to prevent any cropping
+            // Much more generous padding to prevent any cropping
             const verticalPadding = Math.floor(height * 0.04); // 4% of video height as padding
             
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
-            // Select font based on language
+            // FIXED: Select font based on language - CJK fonts support Latin characters
             let selectedFont;
             if (memeLanguage && FONTS[memeLanguage.toLowerCase()]) {
                 selectedFont = FONTS[memeLanguage.toLowerCase()];
@@ -640,7 +645,7 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
                 .complexFilter(filterComplex)
                 .outputOptions([
                     '-map', `[${currentVideoLabel}]`,
-                    '-map', '0:a?', // FIXED: Copy original audio if present
+                    '-map', '0:a?',
                     '-c:v', 'libx264',
                     '-preset', 'fast',
                     '-crf', '18',
@@ -680,6 +685,7 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
 /**
  * Adds meme text with overlay and branding
  * FIXED: Bottom text position matches second code's simpler, lower positioning
+ * FIXED: Uses appropriate font that supports mixed language
  */
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "", projectName = "", memeLanguage = null) {
     return new Promise(async (resolve, reject) => {
@@ -710,7 +716,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const strokeWidth = Math.max(2, Math.floor(fontSize / 10));
             const lineHeight = Math.floor(fontSize * 1.3); // 30% extra space between lines
             
-            // FIXED: Much more generous padding
+            // Much more generous padding
             const topPadding = Math.floor(height * 0.04); // 4% of video height
             
             // Black bar configuration
@@ -719,13 +725,14 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
 
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
-            // Use the same font for ALL text based on language parameter
+            // FIXED: Use the same font for ALL text based on language parameter
+            // CJK fonts support both CJK and Latin characters
             let selectedFont;
             if (memeLanguage && FONTS[memeLanguage.toLowerCase()]) {
                 selectedFont = FONTS[memeLanguage.toLowerCase()];
                 console.log(`🔤 Using provided language font for all text: ${memeLanguage}`);
             } else {
-                const textToDetect = topText || bottomText || '';
+                const textToDetect = topText || bottomText || projectName || '';
                 selectedFont = textToDetect ? getFontForText(textToDetect, null) : FONTS.english;
                 console.log(`🔤 Auto-detecting font from text content`);
             }
@@ -865,7 +872,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 .complexFilter(filterComplex)
                 .outputOptions([
                     '-map', `[${currentVideoLabel}]`,
-                    '-map', '0:a?', // FIXED: Copy original audio if present
+                    '-map', '0:a?',
                     '-c:v', 'libx264',
                     '-preset', 'fast',
                     '-crf', '18',
@@ -903,7 +910,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
 }
 
 /**
- * FIXED: Properly mix video with its original audio plus background music
+ * Properly mix video with its original audio plus background music
  * Ensures video duration is maintained
  */
 async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
@@ -949,7 +956,7 @@ async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
             let filterComplex = '';
             let audioInputs = [];
 
-            // FIXED: Include original video audio if present
+            // Include original video audio if present
             if (videoHasAudio) {
                 audioInputs.push('[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[original_audio]');
             }
@@ -964,7 +971,7 @@ async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
             if (hasMusic) {
                 inputs.push(musicPath);
                 const musicIndex = inputs.length - 1;
-                // FIXED: Trim music to video duration (no looping, just trim if longer)
+                // Trim music to video duration (no looping, just trim if longer)
                 audioInputs.push(`[${musicIndex}:a]atrim=duration=${videoDuration},volume=0.3,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[music_audio]`);
             }
 
@@ -1005,7 +1012,7 @@ async function mixVideo(videoPath, audioPath, musicPath, outputPath) {
                     '-c:v', 'copy',
                     '-c:a', 'aac',
                     '-b:a', '192k',
-                    '-t', videoDuration.toString() // FIXED: Ensure output matches video duration
+                    '-t', videoDuration.toString() // Ensure output matches video duration
                 ])
                 .output(outputPath)
                 .on('start', (cmd) => console.log('🚀 FFmpeg mixing started'))
@@ -1280,7 +1287,7 @@ async function processVideoRequest(req, res) {
                 meme_language
             } = req.body;
             
-            // FIXED: Support both parameter names
+            // Support both parameter names
             videoUrl = final_stitched_video || final_stitch_video;
 
             console.log('📋 Request parameters:');
@@ -1528,7 +1535,7 @@ app.listen(PORT, () => {
     console.log(`📁 Output directory: ${OUTPUT_DIR}`);
     console.log(`🎨 Fonts configured:`);
     console.log(`   - English: ${FONTS.english}`);
-    console.log(`   - Chinese: ${FONTS.chinese}`);
+    console.log(`   - Chinese: ${FONTS.chinese} (supports Latin characters)`);
     console.log(`   - Japanese: ${FONTS.japanese}`);
     console.log(`   - Korean: ${FONTS.korean}`);
     console.log(`🎬 Outro video: ${LUCIEN_OUTRO_PATH}`);
