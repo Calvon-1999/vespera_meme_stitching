@@ -14,10 +14,9 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
 // Font Configuration - Multilingual Support
-// NOTE: Using Noto Sans SC for Chinese as it has excellent Latin character support
 const FONTS = {
     english: path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf"),
-    chinese: path.join(__dirname, "public", "fonts", "NotoSansSC-VariableFont_wght.ttf"),
+    chinese: path.join(__dirname, "public", "fonts", "ZCOOLKuaiLe-Regular.ttf"),
     japanese: path.join(__dirname, "public", "fonts", "RampartOne-Regular.ttf"),
     korean: path.join(__dirname, "public", "fonts", "Jua-Regular.ttf")
 };
@@ -451,7 +450,7 @@ async function concatenateVideos(videoPaths, outputPath) {
 /**
  * Adds branding text to video (bottom-left corner)
  * For Pudgy projects - no overlay, no meme text, just brand
- * FIXED: Uses appropriate font that supports mixed language (e.g., "CZ老婆")
+ * FIXED: Split branding so "luna.fun/memes/" uses English font and project name uses appropriate language font only if it contains CJK characters
  */
 async function addBrandingOnly(videoPath, outputPath, projectName) {
     return new Promise(async (resolve, reject) => {
@@ -461,21 +460,31 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
             const { width, height } = await getVideoDimensions(videoPath);
             console.log(`📐 Video dimensions: ${width}x${height}`);
 
-            // Add luna.fun branding at bottom-left corner
-            const brandingText = `luna.fun/memes/${projectName}`;
-            const escapedBrandingText = escapeForDrawtext(brandingText);
             const brandingFontSize = 18;
             const brandingStrokeWidth = 1;
             const brandingX = 20;
             const brandingY = height - brandingFontSize - 20;
 
-            // FIXED: Select font based on project name (which might contain mixed language)
-            const selectedFont = getFontForText(projectName, null);
-            const escapedFont = selectedFont.replace(/:/g, '\\:');
+            // Split branding into two parts
+            const brandingPrefix = 'luna.fun/memes/';
+            const escapedPrefix = escapeForDrawtext(brandingPrefix);
+            const escapedProjectName = escapeForDrawtext(projectName);
 
+            // Use English font for "luna.fun/memes/"
+            const englishFont = FONTS.english.replace(/:/g, '\\:');
+            
+            // Use detected font for project name - only use CJK font if it contains CJK characters
+            const detectedLanguage = detectLanguage(projectName);
+            const projectNameFont = getFontForText(projectName, null);
+            const escapedProjectFont = projectNameFont.replace(/:/g, '\\:');
+
+            console.log(`🔤 Branding: English font for prefix, ${detectedLanguage} font for project name "${projectName}"`);
+
+            // Step 1: Add the prefix "luna.fun/memes/" with English font
+            // Step 2: Add the project name with appropriate font, positioned after the prefix
             const filterComplex =
-                `[0:v]drawtext=fontfile='${escapedFont}':` +
-                `text='${escapedBrandingText}':` +
+                `[0:v]drawtext=fontfile='${englishFont}':` +
+                `text='${escapedPrefix}':` +
                 `fontcolor=white:` +
                 `fontsize=${brandingFontSize}:` +
                 `bordercolor=black:` +
@@ -484,6 +493,17 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
                 `shadowx=2:` +
                 `shadowy=2:` +
                 `x=${brandingX}:` +
+                `y=${brandingY}[v1];` +
+                `[v1]drawtext=fontfile='${escapedProjectFont}':` +
+                `text='${escapedProjectName}':` +
+                `fontcolor=white:` +
+                `fontsize=${brandingFontSize}:` +
+                `bordercolor=black:` +
+                `borderw=${brandingStrokeWidth}:` +
+                `shadowcolor=black@0.5:` +
+                `shadowx=2:` +
+                `shadowy=2:` +
+                `x=${brandingX}+text_w:` + // Position after the prefix text
                 `y=${brandingY}[outv]`;
 
             ffmpeg(videoPath)
@@ -835,19 +855,32 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                 }
             }
 
-            // Add luna.fun branding at bottom-left corner
-            const brandingText = projectName ? `luna.fun/memes/${projectName}` : "luna.fun/memes";
-            const escapedBrandingText = escapeForDrawtext(brandingText);
+            // Add luna.fun branding at bottom-left corner with split fonts
+            const brandingPrefix = 'luna.fun/memes/';
+            const escapedBrandingPrefix = escapeForDrawtext(brandingPrefix);
+            const escapedProjectName = escapeForDrawtext(projectName || '');
             const brandingFontSize = 18;
             const brandingStrokeWidth = 1;
             const brandingX = 20;
             const brandingY = height - brandingFontSize - 20;
             
-            const nextLabel = `vout`;
+            // Use English font for "luna.fun/memes/"
+            const englishFont = FONTS.english.replace(/:/g, '\\:');
             
+            // Use detected font for project name - only use CJK font if it contains CJK characters
+            const detectedLanguage = projectName ? detectLanguage(projectName) : 'english';
+            const projectNameFont = projectName ? getFontForText(projectName, null) : FONTS.english;
+            const escapedProjectFont = projectNameFont.replace(/:/g, '\\:');
+            
+            console.log(`🔤 Branding: English font for prefix, ${detectedLanguage} font for project name "${projectName}"`);
+            
+            const nextLabel = `v${labelCounter}`;
+            const finalLabel = `vout`;
+            
+            // Add prefix "luna.fun/memes/" with English font
             filterParts.push(
-                `[${currentVideoLabel}]drawtext=fontfile='${escapedFont}':` +
-                `text='${escapedBrandingText}':` +
+                `[${currentVideoLabel}]drawtext=fontfile='${englishFont}':` +
+                `text='${escapedBrandingPrefix}':` +
                 `fontcolor=white:` +
                 `fontsize=${brandingFontSize}:` +
                 `bordercolor=black:` +
@@ -860,6 +893,28 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             );
             
             currentVideoLabel = nextLabel;
+            
+            // Add project name with appropriate font, positioned after the prefix
+            if (projectName) {
+                filterParts.push(
+                    `[${currentVideoLabel}]drawtext=fontfile='${escapedProjectFont}':` +
+                    `text='${escapedProjectName}':` +
+                    `fontcolor=white:` +
+                    `fontsize=${brandingFontSize}:` +
+                    `bordercolor=black:` +
+                    `borderw=${brandingStrokeWidth}:` +
+                    `shadowcolor=black@0.5:` +
+                    `shadowx=2:` +
+                    `shadowy=2:` +
+                    `x=${brandingX}+text_w:` +
+                    `y=${brandingY}[${finalLabel}]`
+                );
+            } else {
+                // No project name, just rename the label
+                filterParts[filterParts.length - 1] = filterParts[filterParts.length - 1].replace(`[${nextLabel}]`, `[${finalLabel}]`);
+            }
+            
+            currentVideoLabel = finalLabel;
 
             const filterComplex = filterParts.join(';');
 
