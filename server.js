@@ -470,6 +470,10 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
             const escapedPrefix = escapeForDrawtext(brandingPrefix);
             const escapedProjectName = escapeForDrawtext(projectName);
 
+            // Calculate approximate width of the prefix "luna.fun/memes/" (15 characters * ~0.6 * fontSize)
+            const prefixWidth = Math.floor(brandingPrefix.length * 0.6 * brandingFontSize);
+            const projectNameX = brandingX + prefixWidth;
+
             // Use English font for "luna.fun/memes/"
             const englishFont = FONTS.english.replace(/:/g, '\\:');
             
@@ -503,7 +507,7 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
                 `shadowcolor=black@0.5:` +
                 `shadowx=2:` +
                 `shadowy=2:` +
-                `x=${brandingX}+text_w:` + // Position after the prefix text
+                `x=${projectNameX}:` +
                 `y=${brandingY}[outv]`;
 
             ffmpeg(videoPath)
@@ -864,6 +868,10 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const brandingX = 20;
             const brandingY = height - brandingFontSize - 20;
             
+            // Calculate approximate width of the prefix "luna.fun/memes/" (15 characters * ~0.6 * fontSize)
+            const prefixWidth = Math.floor(brandingPrefix.length * 0.6 * brandingFontSize);
+            const projectNameX = brandingX + prefixWidth;
+            
             // Use English font for "luna.fun/memes/"
             const englishFont = FONTS.english.replace(/:/g, '\\:');
             
@@ -906,7 +914,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                     `shadowcolor=black@0.5:` +
                     `shadowx=2:` +
                     `shadowy=2:` +
-                    `x=${brandingX}+text_w:` +
+                    `x=${projectNameX}:` +
                     `y=${brandingY}[${finalLabel}]`
                 );
             } else {
