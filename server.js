@@ -40,6 +40,7 @@ const OUTPUT_DIR = path.join(TEMP_DIR, "output");
 /**
  * Detects the primary language of the input text
  * Returns: 'english', 'chinese', 'japanese', or 'korean'
+ * FIXED: Now properly handles mixed language text (e.g., English + Chinese)
  */
 function detectLanguage(text) {
     if (!text) return 'english';
@@ -75,12 +76,25 @@ function detectLanguage(text) {
         }
     }
     
-    // If less than 10% CJK characters, assume English
-    if (totalCJKCount < text.length * 0.1) {
+    // FIXED: If has CJK characters (any amount), detect as mixed or specific CJK language
+    if (totalCJKCount === 0) {
         return 'english';
     }
     
-    // Determine which CJK language is dominant
+    // If CJK is less than 50% but present, it's mixed language
+    const cjkPercentage = totalCJKCount / text.length;
+    if (cjkPercentage < 0.5) {
+        // Determine which CJK language for mixed text
+        if (koreanCount > chineseCount && koreanCount > japaneseCount) {
+            return 'korean'; // Use Korean font for mixed Korean+English
+        } else if (japaneseCount > chineseCount) {
+            return 'japanese'; // Use Japanese font for mixed Japanese+English
+        } else {
+            return 'chinese'; // Use Chinese font for mixed Chinese+English
+        }
+    }
+    
+    // Determine which CJK language is dominant (when CJK >= 50%)
     if (koreanCount > chineseCount && koreanCount > japaneseCount) {
         return 'korean';
     } else if (japaneseCount > chineseCount) {
