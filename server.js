@@ -482,11 +482,15 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
             const projectNameFont = getFontForText(projectName, null);
             const escapedProjectFont = projectNameFont.replace(/:/g, '\\:');
 
-            console.log(`🔤 Branding: English font for prefix, ${detectedLanguage} font for project name "${projectName}"`);
+            // Adjust Y position for project name if using English font (needs slight offset for alignment)
+            // English font appears higher, so add 2px offset to lower it
+            const projectNameY = (detectedLanguage === 'english') ? brandingY + 2 : brandingY;
+
+            console.log(`🔤 Branding: English font for prefix, ${detectedLanguage} font for project name "${projectName}" (Y offset: ${projectNameY - brandingY}px)`);
 
             // Step 1: Add the prefix "luna.fun/memes/" with English font
             // Step 2: Add the project name with appropriate font, positioned after the prefix
-            // IMPORTANT: Both use exact same Y position for perfect vertical alignment
+            // IMPORTANT: Both use explicit Y positions with colon separator and line_spacing for alignment
             const filterComplex =
                 `[0:v]drawtext=fontfile='${englishFont}':` +
                 `text='${escapedPrefix}':` +
@@ -510,7 +514,7 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
                 `shadowx=2:` +
                 `shadowy=2:` +
                 `x=${projectNameX}:` +
-                `y=${brandingY}:` +
+                `y=${projectNameY}:` +
                 `line_spacing=0[outv]`;
 
             ffmpeg(videoPath)
@@ -883,7 +887,11 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const projectNameFont = projectName ? getFontForText(projectName, null) : FONTS.english;
             const escapedProjectFont = projectNameFont.replace(/:/g, '\\:');
             
-            console.log(`🔤 Branding: English font for prefix, ${detectedLanguage} font for project name "${projectName}"`);
+            // Adjust Y position for project name if using English font (needs slight offset for alignment)
+            // English font appears higher, so add 2px offset to lower it
+            const projectNameY = (detectedLanguage === 'english') ? brandingY + 2 : brandingY;
+            
+            console.log(`🔤 Branding: English font for prefix, ${detectedLanguage} font for project name "${projectName}" (Y offset: ${projectNameY - brandingY}px)`);
             
             const nextLabel = `v${labelCounter}`;
             const finalLabel = `vout`;
@@ -907,7 +915,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             currentVideoLabel = nextLabel;
             
             // Add project name with appropriate font, positioned after the prefix
-            // IMPORTANT: Use exact same Y position for perfect vertical alignment
+            // IMPORTANT: Use adjusted Y position for better vertical alignment
             if (projectName) {
                 filterParts.push(
                     `[${currentVideoLabel}]drawtext=fontfile='${escapedProjectFont}':` +
@@ -920,7 +928,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
                     `shadowx=2:` +
                     `shadowy=2:` +
                     `x=${projectNameX}:` +
-                    `y=${brandingY}:` +
+                    `y=${projectNameY}:` +
                     `line_spacing=0[${finalLabel}]`
                 );
             } else {
