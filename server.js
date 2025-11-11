@@ -208,33 +208,57 @@ async function getImageDimensions(filepath) {
 function wrapText(text, maxCharsPerLine = 35) {
     if (!text) return '';
     
-    // Check if text contains significant CJK characters
+    // Check if text contains CJK characters
     const cjkCount = (text.match(/[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/g) || []).length;
-    const hasCJK = cjkCount > text.length * 0.3;
+    const cjkPercentage = cjkCount / text.length;
     
-    if (hasCJK) {
-        // For CJK text, wrap at character boundaries (CJK chars are wider)
-        const adjustedMax = Math.floor(maxCharsPerLine * 0.6); // CJK chars are ~2x wider
+    // For mixed language or CJK-heavy text
+    if (cjkCount > 0) {
+        // Adjust max based on CJK density
+        // More CJK = shorter line (CJK chars are wider)
+        // Less CJK (mixed) = longer line to allow better English word wrapping
+        let adjustedMax;
+        if (cjkPercentage > 0.5) {
+            // Mostly CJK (>50%) - use conservative wrapping
+            adjustedMax = Math.floor(maxCharsPerLine * 0.6);
+        } else {
+            // Mixed language - be more generous to allow English phrases to stay together
+            adjustedMax = Math.floor(maxCharsPerLine * 0.8);
+        }
+        
         let result = '';
         let currentLength = 0;
+        let currentSegment = '';
         
         for (let i = 0; i < text.length; i++) {
             const char = text[i];
             const isCJK = /[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/.test(char);
+            const isSpace = char === ' ';
             const charWidth = isCJK ? 2 : 1;
             
+            // Check if we need to wrap
             if (currentLength + charWidth > adjustedMax && currentLength > 0) {
-                result += '\n';
-                currentLength = 0;
+                // For mixed text, try to break at spaces when possible
+                if (isSpace || isCJK) {
+                    result += currentSegment.trim() + '\n';
+                    currentSegment = '';
+                    currentLength = 0;
+                    if (isSpace) continue; // Skip the space that caused the break
+                }
             }
             
-            result += char;
+            currentSegment += char;
             currentLength += charWidth;
+        }
+        
+        // Add remaining text
+        if (currentSegment.trim()) {
+            result += currentSegment.trim();
         }
         
         return result.trim();
     } else {
-        // For Latin text, wrap at word boundaries
+        // Pure Latin text - wrap at word boundaries
         const words = text.split(' ');
         let lines = [];
         let currentLine = '';
