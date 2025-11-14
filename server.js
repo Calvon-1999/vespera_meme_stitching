@@ -63,6 +63,8 @@ function detectLanguage(text) {
     let tagalogCount = 0;
     let totalSpecialCount = 0;
     
+    console.log(`🔍 Analyzing text: "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`);
+    
     for (const char of text) {
         const code = char.charCodeAt(0);
         
@@ -72,12 +74,14 @@ function detectLanguage(text) {
             (code >= 0x20000 && code <= 0x2A6DF)) { // Extension B
             chineseCount++;
             totalSpecialCount++;
+            console.log(`   '${char}' (U+${code.toString(16).toUpperCase()}) -> CJK/Kanji`);
         }
         // Japanese-specific characters
         else if ((code >= 0x3040 && code <= 0x309F) || // Hiragana
                  (code >= 0x30A0 && code <= 0x30FF)) { // Katakana
             japaneseCount++;
             totalSpecialCount++;
+            console.log(`   '${char}' (U+${code.toString(16).toUpperCase()}) -> HIRAGANA/KATAKANA ✓`);
         }
         // Korean characters (Hangul)
         else if ((code >= 0xAC00 && code <= 0xD7AF) || // Hangul Syllables
@@ -117,17 +121,24 @@ function detectLanguage(text) {
         }
     }
     
+    console.log(`📊 Character counts: CJK=${chineseCount}, JP=${japaneseCount}, KR=${koreanCount}, AR=${arabicCount}`);
+    console.log(`📊 Total special: ${totalSpecialCount}/${text.length} (${(totalSpecialCount/text.length*100).toFixed(1)}%)`);
+    
     // If no special characters, default to English
     if (totalSpecialCount === 0) {
+        console.log(`✓ Result: english (no special chars)`);
         return 'english';
     }
     
     // If special characters are less than 50% but present, it's mixed language
     const specialPercentage = totalSpecialCount / text.length;
     if (specialPercentage < 0.5) {
+        console.log(`🔀 Mixed language detected (special chars < 50%)`);
+        
         // CRITICAL: If there's ANY Japanese-specific characters (Hiragana/Katakana),
         // it's Japanese, even in heavily mixed text (since Hiragana/Katakana are Japanese-only)
         if (japaneseCount > 0) {
+            console.log(`✓ Result: japanese (Hiragana/Katakana present: ${japaneseCount})`);
             return 'japanese';
         }
         
@@ -145,8 +156,12 @@ function detectLanguage(text) {
         ];
         
         counts.sort((a, b) => b.count - a.count);
-        return counts[0].count > 0 ? counts[0].lang : 'english';
+        const result = counts[0].count > 0 ? counts[0].lang : 'english';
+        console.log(`✓ Result: ${result} (highest count: ${counts[0].count})`);
+        return result;
     }
+    
+    console.log(`📈 High special char percentage (>= 50%)`);
     
     // Determine which language is dominant (when special chars >= 50%)
     const maxCount = Math.max(
@@ -156,17 +171,42 @@ function detectLanguage(text) {
     
     // IMPORTANT: If there's ANY Japanese-specific characters (Hiragana/Katakana),
     // it's Japanese, even if Kanji outnumber them (since Kanji are shared with Chinese)
-    if (japaneseCount > 0) return 'japanese';
+    if (japaneseCount > 0) {
+        console.log(`✓ Result: japanese (Hiragana/Katakana present: ${japaneseCount})`);
+        return 'japanese';
+    }
     
-    if (arabicCount === maxCount && arabicCount > 0) return 'arabic';
-    if (bengaliCount === maxCount && bengaliCount > 0) return 'bengali';
-    if (tamilCount === maxCount && tamilCount > 0) return 'tamil';
-    if (thaiCount === maxCount && thaiCount > 0) return 'thai';
-    if (koreanCount === maxCount && koreanCount > 0) return 'korean';
-    if (chineseCount === maxCount && chineseCount > 0) return 'chinese';
-    if (tagalogCount === maxCount && tagalogCount > 0) return 'tagalog';
+    if (arabicCount === maxCount && arabicCount > 0) {
+        console.log(`✓ Result: arabic`);
+        return 'arabic';
+    }
+    if (bengaliCount === maxCount && bengaliCount > 0) {
+        console.log(`✓ Result: bengali`);
+        return 'bengali';
+    }
+    if (tamilCount === maxCount && tamilCount > 0) {
+        console.log(`✓ Result: tamil`);
+        return 'tamil';
+    }
+    if (thaiCount === maxCount && thaiCount > 0) {
+        console.log(`✓ Result: thai`);
+        return 'thai';
+    }
+    if (koreanCount === maxCount && koreanCount > 0) {
+        console.log(`✓ Result: korean`);
+        return 'korean';
+    }
+    if (chineseCount === maxCount && chineseCount > 0) {
+        console.log(`✓ Result: chinese`);
+        return 'chinese';
+    }
+    if (tagalogCount === maxCount && tagalogCount > 0) {
+        console.log(`✓ Result: tagalog`);
+        return 'tagalog';
+    }
     
     // Default to English
+    console.log(`✓ Result: english (default)`);
     return 'english';
 }
 
@@ -1413,7 +1453,11 @@ async function processVideoRequest(req, res) {
         }
         
         if (!isPudgyProject) {
-            // Original format
+            // Original format - handle both object and array[0] format
+            const requestData = Array.isArray(req.body) && req.body.length > 0 && !req.body[0].data 
+                ? req.body[0]  // Array format: [{meme_top_text: ...}]
+                : req.body;     // Object format: {meme_top_text: ...}
+            
             const {
                 final_stitched_video,
                 final_stitch_video, // Alternative parameter name
@@ -1423,7 +1467,7 @@ async function processVideoRequest(req, res) {
                 meme_bottom_text,
                 meme_project_name,
                 meme_language
-            } = req.body;
+            } = requestData;
             
             // Support both parameter names
             videoUrl = final_stitched_video || final_stitch_video;
