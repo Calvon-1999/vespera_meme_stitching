@@ -521,8 +521,9 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
             const escapedPrefix = escapeForDrawtext(brandingPrefix);
             const escapedProjectName = escapeForDrawtext(projectName);
 
-            // Calculate approximate width of the prefix "luna.fun/memes/" (15 characters * ~0.6 * fontSize)
-            const prefixWidth = Math.floor(brandingPrefix.length * 0.6 * brandingFontSize);
+            // Calculate approximate width of the prefix "luna.fun/memes/" with tighter spacing
+            // Reduced from 0.6 to 0.55 to bring project name closer
+            const prefixWidth = Math.floor(brandingPrefix.length * 0.55 * brandingFontSize);
             const projectNameX = brandingX + prefixWidth;
 
             // Use English font for "luna.fun/memes/"
@@ -533,11 +534,10 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
             const projectNameFont = getFontForText(projectName, null);
             const escapedProjectFont = projectNameFont.replace(/:/g, '\\:');
 
-            // Adjust Y position for project name if using English font (needs slight offset for alignment)
-            // English font appears higher, so add 2px offset to lower it
-            const projectNameY = (detectedLanguage === 'english') ? brandingY + 2 : brandingY;
+            // Move project name up by 2px from base position (was +2 for english, now 0 for english and -2 for others)
+            const projectNameY = (detectedLanguage === 'english') ? brandingY : brandingY - 2;
 
-            console.log(`🔤 Branding: English font for prefix, ${detectedLanguage} font for project name "${projectName}" (Y offset: ${projectNameY - brandingY}px)`);
+            console.log(`🔤 Branding: English font for prefix, ${detectedLanguage} font for project name "${projectName}" (Y offset: ${projectNameY - brandingY}px, closer spacing)`);
 
             // Step 1: Add the prefix "luna.fun/memes/" with English font
             // Step 2: Add the project name with appropriate font, positioned after the prefix
@@ -927,8 +927,9 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             // ADJUSTED: Move down by additional 8px to center on black bar (was -20, now -12)
             const brandingY = height - brandingFontSize - 12;
             
-            // Calculate approximate width of the prefix "luna.fun/memes/" (15 characters * ~0.6 * fontSize)
-            const prefixWidth = Math.floor(brandingPrefix.length * 0.6 * brandingFontSize);
+            // Calculate approximate width of the prefix "luna.fun/memes/" with tighter spacing
+            // Reduced from 0.6 to 0.55 to bring project name closer
+            const prefixWidth = Math.floor(brandingPrefix.length * 0.55 * brandingFontSize);
             const projectNameX = brandingX + prefixWidth;
             
             // Use English font for "luna.fun/memes/"
@@ -939,11 +940,10 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             const projectNameFont = projectName ? getFontForText(projectName, null) : FONTS.english;
             const escapedProjectFont = projectNameFont.replace(/:/g, '\\:');
             
-            // Adjust Y position for project name if using English font (needs slight offset for alignment)
-            // English font appears higher, so add 2px offset to lower it
-            const projectNameY = (detectedLanguage === 'english') ? brandingY + 2 : brandingY;
+            // Move project name up by 2px from base position (was +2 for english, now 0 for english and -2 for others)
+            const projectNameY = (detectedLanguage === 'english') ? brandingY : brandingY - 2;
             
-            console.log(`🔤 Branding: English font for prefix, ${detectedLanguage} font for project name "${projectName}" (Y offset: ${projectNameY - brandingY}px)`);
+            console.log(`🔤 Branding: English font for prefix, ${detectedLanguage} font for project name "${projectName}" (Y offset: ${projectNameY - brandingY}px, closer spacing)`);
             
             const nextLabel = `v${labelCounter}`;
             const finalLabel = `vout`;
