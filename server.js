@@ -521,9 +521,9 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
             const escapedPrefix = escapeForDrawtext(brandingPrefix);
             const escapedProjectName = escapeForDrawtext(projectName);
 
-            // Calculate approximate width of the prefix "luna.fun/memes/" with tighter spacing
-            // Reduced from 0.6 to 0.55 to bring project name closer
-            const prefixWidth = Math.floor(brandingPrefix.length * 0.55 * brandingFontSize);
+            // Calculate approximate width of the prefix "luna.fun/memes/" with proper spacing
+            // Set to 0.58 to ensure the "/" is visible before project name
+            const prefixWidth = Math.floor(brandingPrefix.length * 0.58 * brandingFontSize);
             const projectNameX = brandingX + prefixWidth;
 
             // Use English font for "luna.fun/memes/"
@@ -927,9 +927,9 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             // ADJUSTED: Move down by additional 8px to center on black bar (was -20, now -12)
             const brandingY = height - brandingFontSize - 12;
             
-            // Calculate approximate width of the prefix "luna.fun/memes/" with tighter spacing
-            // Reduced from 0.6 to 0.55 to bring project name closer
-            const prefixWidth = Math.floor(brandingPrefix.length * 0.55 * brandingFontSize);
+            // Calculate approximate width of the prefix "luna.fun/memes/" with proper spacing
+            // Set to 0.58 to ensure the "/" is visible before project name
+            const prefixWidth = Math.floor(brandingPrefix.length * 0.58 * brandingFontSize);
             const projectNameX = brandingX + prefixWidth;
             
             // Use English font for "luna.fun/memes/"
