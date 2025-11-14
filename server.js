@@ -125,6 +125,12 @@ function detectLanguage(text) {
     // If special characters are less than 50% but present, it's mixed language
     const specialPercentage = totalSpecialCount / text.length;
     if (specialPercentage < 0.5) {
+        // CRITICAL: If there's ANY Japanese-specific characters (Hiragana/Katakana),
+        // it's Japanese, even in heavily mixed text (since Hiragana/Katakana are Japanese-only)
+        if (japaneseCount > 0) {
+            return 'japanese';
+        }
+        
         // Determine which language for mixed text
         // The language font will handle both special characters and Latin characters
         const counts = [
