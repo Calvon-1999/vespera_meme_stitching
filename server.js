@@ -148,12 +148,15 @@ function detectLanguage(text) {
         koreanCount, japaneseCount, chineseCount, tagalogCount
     );
     
+    // IMPORTANT: If there's ANY Japanese-specific characters (Hiragana/Katakana),
+    // it's Japanese, even if Kanji outnumber them (since Kanji are shared with Chinese)
+    if (japaneseCount > 0) return 'japanese';
+    
     if (arabicCount === maxCount && arabicCount > 0) return 'arabic';
     if (bengaliCount === maxCount && bengaliCount > 0) return 'bengali';
     if (tamilCount === maxCount && tamilCount > 0) return 'tamil';
     if (thaiCount === maxCount && thaiCount > 0) return 'thai';
     if (koreanCount === maxCount && koreanCount > 0) return 'korean';
-    if (japaneseCount === maxCount && japaneseCount > 0) return 'japanese';
     if (chineseCount === maxCount && chineseCount > 0) return 'chinese';
     if (tagalogCount === maxCount && tagalogCount > 0) return 'tagalog';
     
