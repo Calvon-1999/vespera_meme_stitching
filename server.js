@@ -211,31 +211,128 @@ function detectLanguage(text) {
 }
 
 /**
- * Gets the appropriate font path based on provided or detected language
- * @param {string} text - The text to get font for
- * @param {string} providedLanguage - Optional language override
+ * Detects the primary language of the input text
+ * Returns: 'english', 'chinese', 'japanese', 'korean', 'arabic', 'bengali', 'tamil', 'thai', or 'tagalog'
+ * IMPORTANT: Japanese text uses 'chinese' font since NotoSansSC includes Hiragana/Katakana
  */
-function getFontForText(text, providedLanguage = null) {
-    let language;
+function detectLanguage(text) {
+    if (!text) return 'english';
     
-    if (providedLanguage && FONTS[providedLanguage.toLowerCase()]) {
-        // Use provided language if valid
-        language = providedLanguage.toLowerCase();
-        console.log(`🔤 Using provided language: ${language} for text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
-    } else {
-        // Fall back to auto-detection
-        language = detectLanguage(text);
-        console.log(`🔤 Auto-detected language: ${language} for text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+    // Count characters by language
+    let chineseCount = 0;
+    let japaneseCount = 0;
+    let koreanCount = 0;
+    let arabicCount = 0;
+    let bengaliCount = 0;
+    let tamilCount = 0;
+    let thaiCount = 0;
+    let tagalogCount = 0;
+    let totalSpecialCount = 0;
+    
+    console.log(`🔍 Analyzing text: "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`);
+    
+    for (const char of text) {
+        const code = char.charCodeAt(0);
+        
+        // Chinese characters (CJK Unified Ideographs)
+        if ((code >= 0x4E00 && code <= 0x9FFF) || // Common Chinese
+            (code >= 0x3400 && code <= 0x4DBF) || // Extension A
+            (code >= 0x20000 && code <= 0x2A6DF)) { // Extension B
+            chineseCount++;
+            totalSpecialCount++;
+            console.log(`   '${char}' (U+${code.toString(16).toUpperCase()}) -> CJK/Kanji`);
+        }
+        // Japanese-specific characters (Hiragana/Katakana)
+        // NOTE: We still detect these, but will use Chinese font for rendering
+        else if ((code >= 0x3040 && code <= 0x309F) || // Hiragana
+                 (code >= 0x30A0 && code <= 0x30FF)) { // Katakana
+            japaneseCount++;
+            totalSpecialCount++;
+            console.log(`   '${char}' (U+${code.toString(16).toUpperCase()}) -> HIRAGANA/KATAKANA ✓`);
+        }
+        // Korean characters (Hangul)
+        else if ((code >= 0xAC00 && code <= 0xD7AF) || // Hangul Syllables
+                 (code >= 0x1100 && code <= 0x11FF) || // Hangul Jamo
+                 (code >= 0x3130 && code <= 0x318F)) { // Hangul Compatibility Jamo
+            koreanCount++;
+            totalSpecialCount++;
+        }
+        // Arabic characters
+        else if ((code >= 0x0600 && code <= 0x06FF) || // Arabic
+                 (code >= 0x0750 && code <= 0x077F) || // Arabic Supplement
+                 (code >= 0xFB50 && code <= 0xFDFF) || // Arabic Presentation Forms-A
+                 (code >= 0xFE70 && code <= 0xFEFF)) { // Arabic Presentation Forms-B
+            arabicCount++;
+            totalSpecialCount++;
+        }
+        // Bengali characters
+        else if (code >= 0x0980 && code <= 0x09FF) {
+            bengaliCount++;
+            totalSpecialCount++;
+        }
+        // Tamil characters
+        else if (code >= 0x0B80 && code <= 0x0BFF) {
+            tamilCount++;
+            totalSpecialCount++;
+        }
+        // Thai characters
+        else if (code >= 0x0E00 && code <= 0x0E7F) {
+            thaiCount++;
+            totalSpecialCount++;
+        }
+        // Tagalog/Baybayin characters (though modern Tagalog uses Latin script)
+        else if ((code >= 0x1700 && code <= 0x171F) || // Tagalog
+                 (code >= 0x1780 && code <= 0x17FF)) { // Khmer (sometimes used in Philippines)
+            tagalogCount++;
+            totalSpecialCount++;
+        }
     }
     
-    const fontPath = FONTS[language];
+    console.log(`📊 Character counts: CJK=${chineseCount}, JP=${japaneseCount}, KR=${koreanCount}, AR=${arabicCount}`);
+    console.log(`📊 Total special: ${totalSpecialCount}/${text.length} (${(totalSpecialCount/text.length*100).toFixed(1)}%)`);
     
-    if (!fs.existsSync(fontPath)) {
-        console.warn(`⚠️  Warning: Font file not found at ${fontPath}, falling back to English font`);
-        return FONTS.english;
+    // If no special characters, default to English
+    if (totalSpecialCount === 0) {
+        console.log(`✓ Result: english (no special chars)`);
+        return 'english';
     }
     
-    return fontPath;
+    // CRITICAL: If there's ANY Japanese text (Hiragana/Katakana or Kanji),
+    // use CHINESE font since NotoSansSC-Bold includes Hiragana/Katakana glyphs
+    if (japaneseCount > 0 || chineseCount > 0) {
+        console.log(`✓ Result: chinese (CJK/Japanese text detected - NotoSansSC supports both)`);
+        return 'chinese';
+    }
+    
+    // Check other languages
+    if (koreanCount > 0) {
+        console.log(`✓ Result: korean`);
+        return 'korean';
+    }
+    if (arabicCount > 0) {
+        console.log(`✓ Result: arabic`);
+        return 'arabic';
+    }
+    if (bengaliCount > 0) {
+        console.log(`✓ Result: bengali`);
+        return 'bengali';
+    }
+    if (tamilCount > 0) {
+        console.log(`✓ Result: tamil`);
+        return 'tamil';
+    }
+    if (thaiCount > 0) {
+        console.log(`✓ Result: thai`);
+        return 'thai';
+    }
+    if (tagalogCount > 0) {
+        console.log(`✓ Result: tagalog`);
+        return 'tagalog';
+    }
+    
+    // Default to English
+    console.log(`✓ Result: english (default)`);
+    return 'english';
 }
 
 async function ensureDirectories() {
