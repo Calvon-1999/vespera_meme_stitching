@@ -335,6 +335,34 @@ function detectLanguage(text) {
     return 'english';
 }
 
+/**
+ * Gets the appropriate font path based on provided or detected language
+ * @param {string} text - The text to get font for
+ * @param {string} providedLanguage - Optional language override
+ */
+function getFontForText(text, providedLanguage = null) {
+    let language;
+    
+    if (providedLanguage && FONTS[providedLanguage.toLowerCase()]) {
+        // Use provided language if valid
+        language = providedLanguage.toLowerCase();
+        console.log(`🔤 Using provided language: ${language} for text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+    } else {
+        // Fall back to auto-detection
+        language = detectLanguage(text);
+        console.log(`🔤 Auto-detected language: ${language} for text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+    }
+    
+    const fontPath = FONTS[language];
+    
+    if (!fs.existsSync(fontPath)) {
+        console.warn(`⚠️  Warning: Font file not found at ${fontPath}, falling back to English font`);
+        return FONTS.english;
+    }
+    
+    return fontPath;
+}
+
 async function ensureDirectories() {
     await fsp.mkdir(OUTPUT_DIR, { recursive: true });
     console.log('📁 Directories ensured');
