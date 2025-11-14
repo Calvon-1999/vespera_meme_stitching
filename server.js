@@ -13,12 +13,19 @@ const ffprobePath = require("@ffprobe-installer/ffprobe").path;
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
-// Font Configuration - Multilingual Support
+// Font Configuration - Multilingual Support using Noto Sans family
+// Note: NotoSans-Bold covers Latin characters (English, etc.)
+// Each language-specific font also includes Latin character support
 const FONTS = {
-    english: path.join(__dirname, "public", "fonts", "Montserrat-Bold.ttf"),
-    chinese: path.join(__dirname, "public", "fonts", "ZCOOLKuaiLe-Regular.ttf"),
-    japanese: path.join(__dirname, "public", "fonts", "RampartOne-Regular.ttf"),
-    korean: path.join(__dirname, "public", "fonts", "Jua-Regular.ttf")
+    english: path.join(__dirname, "public", "fonts", "NotoSans-Bold.ttf"),
+    chinese: path.join(__dirname, "public", "fonts", "NotoSansSC-Bold.ttf"), // Simplified Chinese
+    japanese: path.join(__dirname, "public", "fonts", "NotoSansJP-Bold.ttf"),
+    korean: path.join(__dirname, "public", "fonts", "NotoSansKR-Bold.ttf"),
+    arabic: path.join(__dirname, "public", "fonts", "NotoSansArabic-Bold.ttf"),
+    bengali: path.join(__dirname, "public", "fonts", "NotoSansBengali-Bold.ttf"),
+    tamil: path.join(__dirname, "public", "fonts", "NotoSansTamil-Bold.ttf"),
+    thai: path.join(__dirname, "public", "fonts", "NotoSansThai-Bold.ttf"),
+    tagalog: path.join(__dirname, "public", "fonts", "NotoSansTagalog-Regular.ttf")
 };
 
 // Overlay Image Configuration
@@ -39,9 +46,8 @@ const OUTPUT_DIR = path.join(TEMP_DIR, "output");
 
 /**
  * Detects the primary language of the input text
- * Returns: 'english', 'chinese', 'japanese', or 'korean'
- * FIXED: Now properly handles mixed language text (e.g., English + Chinese)
- * The Chinese font (Noto Sans SC) supports Latin characters, so mixed text works perfectly
+ * Returns: 'english', 'chinese', 'japanese', 'korean', 'arabic', 'bengali', 'tamil', 'thai', or 'tagalog'
+ * Enhanced to support more languages with proper Unicode ranges
  */
 function detectLanguage(text) {
     if (!text) return 'english';
@@ -50,7 +56,12 @@ function detectLanguage(text) {
     let chineseCount = 0;
     let japaneseCount = 0;
     let koreanCount = 0;
-    let totalCJKCount = 0;
+    let arabicCount = 0;
+    let bengaliCount = 0;
+    let tamilCount = 0;
+    let thaiCount = 0;
+    let tagalogCount = 0;
+    let totalSpecialCount = 0;
     
     for (const char of text) {
         const code = char.charCodeAt(0);
@@ -60,50 +71,91 @@ function detectLanguage(text) {
             (code >= 0x3400 && code <= 0x4DBF) || // Extension A
             (code >= 0x20000 && code <= 0x2A6DF)) { // Extension B
             chineseCount++;
-            totalCJKCount++;
+            totalSpecialCount++;
         }
         // Japanese-specific characters
         else if ((code >= 0x3040 && code <= 0x309F) || // Hiragana
                  (code >= 0x30A0 && code <= 0x30FF)) { // Katakana
             japaneseCount++;
-            totalCJKCount++;
+            totalSpecialCount++;
         }
         // Korean characters (Hangul)
         else if ((code >= 0xAC00 && code <= 0xD7AF) || // Hangul Syllables
                  (code >= 0x1100 && code <= 0x11FF) || // Hangul Jamo
                  (code >= 0x3130 && code <= 0x318F)) { // Hangul Compatibility Jamo
             koreanCount++;
-            totalCJKCount++;
+            totalSpecialCount++;
+        }
+        // Arabic characters
+        else if ((code >= 0x0600 && code <= 0x06FF) || // Arabic
+                 (code >= 0x0750 && code <= 0x077F) || // Arabic Supplement
+                 (code >= 0xFB50 && code <= 0xFDFF) || // Arabic Presentation Forms-A
+                 (code >= 0xFE70 && code <= 0xFEFF)) { // Arabic Presentation Forms-B
+            arabicCount++;
+            totalSpecialCount++;
+        }
+        // Bengali characters
+        else if (code >= 0x0980 && code <= 0x09FF) {
+            bengaliCount++;
+            totalSpecialCount++;
+        }
+        // Tamil characters
+        else if (code >= 0x0B80 && code <= 0x0BFF) {
+            tamilCount++;
+            totalSpecialCount++;
+        }
+        // Thai characters
+        else if (code >= 0x0E00 && code <= 0x0E7F) {
+            thaiCount++;
+            totalSpecialCount++;
+        }
+        // Tagalog/Baybayin characters (though modern Tagalog uses Latin script)
+        else if ((code >= 0x1700 && code <= 0x171F) || // Tagalog
+                 (code >= 0x1780 && code <= 0x17FF)) { // Khmer (sometimes used in Philippines)
+            tagalogCount++;
+            totalSpecialCount++;
         }
     }
     
-    // If has CJK characters (any amount), detect as mixed or specific CJK language
-    if (totalCJKCount === 0) {
+    // If no special characters, default to English
+    if (totalSpecialCount === 0) {
         return 'english';
     }
     
-    // If CJK is less than 50% but present, it's mixed language
-    const cjkPercentage = totalCJKCount / text.length;
-    if (cjkPercentage < 0.5) {
-        // Determine which CJK language for mixed text
-        // The CJK font will handle both CJK and Latin characters
-        if (koreanCount > chineseCount && koreanCount > japaneseCount) {
-            return 'korean'; // Use Korean font for mixed Korean+English
-        } else if (japaneseCount > chineseCount) {
-            return 'japanese'; // Use Japanese font for mixed Japanese+English
-        } else {
-            return 'chinese'; // Use Chinese font for mixed Chinese+English
-        }
+    // If special characters are less than 50% but present, it's mixed language
+    const specialPercentage = totalSpecialCount / text.length;
+    if (specialPercentage < 0.5) {
+        // Determine which language for mixed text
+        // The language font will handle both special characters and Latin characters
+        const counts = [
+            { lang: 'arabic', count: arabicCount },
+            { lang: 'bengali', count: bengaliCount },
+            { lang: 'tamil', count: tamilCount },
+            { lang: 'thai', count: thaiCount },
+            { lang: 'korean', count: koreanCount },
+            { lang: 'japanese', count: japaneseCount },
+            { lang: 'chinese', count: chineseCount },
+            { lang: 'tagalog', count: tagalogCount }
+        ];
+        
+        counts.sort((a, b) => b.count - a.count);
+        return counts[0].count > 0 ? counts[0].lang : 'english';
     }
     
-    // Determine which CJK language is dominant (when CJK >= 50%)
-    if (koreanCount > chineseCount && koreanCount > japaneseCount) {
-        return 'korean';
-    } else if (japaneseCount > chineseCount) {
-        return 'japanese';
-    } else if (chineseCount > 0) {
-        return 'chinese';
-    }
+    // Determine which language is dominant (when special chars >= 50%)
+    const maxCount = Math.max(
+        arabicCount, bengaliCount, tamilCount, thaiCount,
+        koreanCount, japaneseCount, chineseCount, tagalogCount
+    );
+    
+    if (arabicCount === maxCount && arabicCount > 0) return 'arabic';
+    if (bengaliCount === maxCount && bengaliCount > 0) return 'bengali';
+    if (tamilCount === maxCount && tamilCount > 0) return 'tamil';
+    if (thaiCount === maxCount && thaiCount > 0) return 'thai';
+    if (koreanCount === maxCount && koreanCount > 0) return 'korean';
+    if (japaneseCount === maxCount && japaneseCount > 0) return 'japanese';
+    if (chineseCount === maxCount && chineseCount > 0) return 'chinese';
+    if (tagalogCount === maxCount && tagalogCount > 0) return 'tagalog';
     
     // Default to English
     return 'english';
@@ -112,7 +164,7 @@ function detectLanguage(text) {
 /**
  * Gets the appropriate font path based on provided or detected language
  * @param {string} text - The text to get font for
- * @param {string} providedLanguage - Optional language override ('english', 'chinese', 'japanese', 'korean')
+ * @param {string} providedLanguage - Optional language override
  */
 function getFontForText(text, providedLanguage = null) {
     let language;
@@ -205,26 +257,24 @@ async function getImageDimensions(filepath) {
 
 /**
  * Wraps text by inserting newlines to prevent excessive width
- * Handles both Latin and CJK characters appropriately
+ * Handles both Latin and non-Latin characters appropriately
  */
 function wrapText(text, maxCharsPerLine = 35) {
     if (!text) return '';
     
-    // Check if text contains CJK characters
-    const cjkCount = (text.match(/[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/g) || []).length;
-    const cjkPercentage = cjkCount / text.length;
+    // Check if text contains non-Latin characters
+    const nonLatinCount = (text.match(/[\u0600-\u06FF\u0750-\u077F\u0980-\u09FF\u0B80-\u0BFF\u0E00-\u0E7F\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/g) || []).length;
+    const nonLatinPercentage = nonLatinCount / text.length;
     
-    // For mixed language or CJK-heavy text
-    if (cjkCount > 0) {
-        // Adjust max based on CJK density
-        // More CJK = shorter line (CJK chars are wider)
-        // Less CJK (mixed) = longer line to allow better English word wrapping
+    // For text with non-Latin characters
+    if (nonLatinCount > 0) {
+        // Adjust max based on non-Latin density
         let adjustedMax;
-        if (cjkPercentage > 0.5) {
-            // Mostly CJK (>50%) - use conservative wrapping
+        if (nonLatinPercentage > 0.5) {
+            // Mostly non-Latin (>50%) - use conservative wrapping
             adjustedMax = Math.floor(maxCharsPerLine * 0.7);
         } else {
-            // Mixed language - be VERY generous to create wider, fewer lines
+            // Mixed language - be generous to create wider, fewer lines
             adjustedMax = Math.floor(maxCharsPerLine * 1.2);
         }
         
@@ -234,14 +284,14 @@ function wrapText(text, maxCharsPerLine = 35) {
         
         for (let i = 0; i < text.length; i++) {
             const char = text[i];
-            const isCJK = /[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/.test(char);
+            const isNonLatin = /[\u0600-\u06FF\u0750-\u077F\u0980-\u09FF\u0B80-\u0BFF\u0E00-\u0E7F\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/.test(char);
             const isSpace = char === ' ';
-            const charWidth = isCJK ? 2 : 1;
+            const charWidth = isNonLatin ? 2 : 1;
             
             // Check if we need to wrap
             if (currentLength + charWidth > adjustedMax && currentLength > 0) {
                 // For mixed text, try to break at spaces when possible
-                if (isSpace || isCJK) {
+                if (isSpace || isNonLatin) {
                     result += currentSegment.trim() + '\n';
                     currentSegment = '';
                     currentLength = 0;
@@ -450,7 +500,7 @@ async function concatenateVideos(videoPaths, outputPath) {
 /**
  * Adds branding text to video (bottom-left corner)
  * For Pudgy projects - no overlay, no meme text, just brand
- * FIXED: Split branding so "luna.fun/memes/" uses English font and project name uses appropriate language font only if it contains CJK characters
+ * FIXED: Split branding so "luna.fun/memes/" uses English font and project name uses appropriate language font only if it contains non-Latin characters
  */
 async function addBrandingOnly(videoPath, outputPath, projectName) {
     return new Promise(async (resolve, reject) => {
@@ -478,7 +528,7 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
             // Use English font for "luna.fun/memes/"
             const englishFont = FONTS.english.replace(/:/g, '\\:');
             
-            // Use detected font for project name - only use CJK font if it contains CJK characters
+            // Use detected font for project name - only use non-English font if it contains non-Latin characters
             const detectedLanguage = detectLanguage(projectName);
             const projectNameFont = getFontForText(projectName, null);
             const escapedProjectFont = projectNameFont.replace(/:/g, '\\:');
@@ -593,7 +643,7 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
             
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
-            // FIXED: Select font based on language - CJK fonts support Latin characters
+            // FIXED: Select font based on language - all Noto fonts support Latin characters
             let selectedFont;
             if (memeLanguage && FONTS[memeLanguage.toLowerCase()]) {
                 selectedFont = FONTS[memeLanguage.toLowerCase()];
@@ -758,7 +808,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
             // FIXED: Use the same font for ALL text based on language parameter
-            // CJK fonts support both CJK and Latin characters
+            // All Noto fonts support both their specific script and Latin characters
             let selectedFont;
             if (memeLanguage && FONTS[memeLanguage.toLowerCase()]) {
                 selectedFont = FONTS[memeLanguage.toLowerCase()];
@@ -884,7 +934,7 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
             // Use English font for "luna.fun/memes/"
             const englishFont = FONTS.english.replace(/:/g, '\\:');
             
-            // Use detected font for project name - only use CJK font if it contains CJK characters
+            // Use detected font for project name - only use non-English font if it contains non-Latin characters
             const detectedLanguage = projectName ? detectLanguage(projectName) : 'english';
             const projectNameFont = projectName ? getFontForText(projectName, null) : FONTS.english;
             const escapedProjectFont = projectNameFont.replace(/:/g, '\\:');
@@ -1612,11 +1662,16 @@ app.listen(PORT, () => {
     console.log(`📍 Running on: http://localhost:${PORT}`);
     console.log(`🏥 Health check: http://localhost:${PORT}/health`);
     console.log(`📁 Output directory: ${OUTPUT_DIR}`);
-    console.log(`🎨 Fonts configured:`);
+    console.log(`🎨 Fonts configured (Noto Sans family):`);
     console.log(`   - English: ${FONTS.english}`);
-    console.log(`   - Chinese: ${FONTS.chinese} (supports Latin characters)`);
+    console.log(`   - Chinese (Simplified): ${FONTS.chinese}`);
     console.log(`   - Japanese: ${FONTS.japanese}`);
     console.log(`   - Korean: ${FONTS.korean}`);
+    console.log(`   - Arabic: ${FONTS.arabic}`);
+    console.log(`   - Bengali: ${FONTS.bengali}`);
+    console.log(`   - Tamil: ${FONTS.tamil}`);
+    console.log(`   - Thai: ${FONTS.thai}`);
+    console.log(`   - Tagalog: ${FONTS.tagalog}`);
     console.log(`🎬 Outro video: ${LUCIEN_OUTRO_PATH}`);
     console.log('========================================\n');
 });
