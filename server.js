@@ -18,9 +18,9 @@ ffmpeg.setFfprobePath(ffprobePath);
 // Each language-specific font also includes Latin character support
 const FONTS = {
     english: path.join(__dirname, "public", "fonts", "NotoSans-Bold.ttf"),
-    chinese: path.join(__dirname, "public", "fonts", "NotoSansSC-Bold.ttf"), // Simplified Chinese
-    japanese: path.join(__dirname, "public", "fonts", "NotoSansJP-Bold.ttf"),
-    korean: path.join(__dirname, "public", "fonts", "NotoSansKR-Bold.ttf"),
+    chinese: path.join(__dirname, "public", "fonts", "NotoSansSC-Bold.ttf"), // Simplified Chinese + English
+    japanese: path.join(__dirname, "public", "fonts", "NotoSansJP-Bold.ttf"), // Japanese + English
+    korean: path.join(__dirname, "public", "fonts", "NotoSansKR-Bold.ttf"), // Korean + English
     arabic: path.join(__dirname, "public", "fonts", "NotoSansArabic-Bold.ttf"),
     bengali: path.join(__dirname, "public", "fonts", "NotoSansBengali-Bold.ttf"),
     tamil: path.join(__dirname, "public", "fonts", "NotoSansTamil-Bold.ttf"),
@@ -42,8 +42,163 @@ app.use(express.json({ limit: "50mb" }));
 const TEMP_DIR = "/tmp";
 const OUTPUT_DIR = path.join(TEMP_DIR, "output");
 
+// ==================== UTILITY FUNCTIONS ====================
+
 /**
- * Gets the appropriate font path based on provided or detected language
+ * Detects the primary language of the input text
+ * Returns: 'english', 'chinese', 'japanese', 'korean', 'arabic', 'bengali', 'tamil', 'thai', or 'tagalog'
+ */
+function detectLanguage(text) {
+    if (!text) return 'english';
+    
+    // Count characters by language
+    let chineseCount = 0;
+    let japaneseCount = 0;
+    let koreanCount = 0;
+    let arabicCount = 0;
+    let bengaliCount = 0;
+    let tamilCount = 0;
+    let thaiCount = 0;
+    let tagalogCount = 0;
+    let totalSpecialCount = 0;
+    
+    console.log(`🔍 Analyzing text: "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`);
+    
+    for (const char of text) {
+        const code = char.charCodeAt(0);
+        
+        // Chinese characters (CJK Unified Ideographs)
+        if ((code >= 0x4E00 && code <= 0x9FFF) || // Common Chinese
+            (code >= 0x3400 && code <= 0x4DBF) || // Extension A
+            (code >= 0x20000 && code <= 0x2A6DF)) { // Extension B
+            chineseCount++;
+            totalSpecialCount++;
+        }
+        // Japanese-specific characters (Hiragana/Katakana)
+        else if ((code >= 0x3040 && code <= 0x309F) || // Hiragana
+                 (code >= 0x30A0 && code <= 0x30FF)) { // Katakana
+            japaneseCount++;
+            totalSpecialCount++;
+        }
+        // Korean characters (Hangul)
+        else if ((code >= 0xAC00 && code <= 0xD7AF) || // Hangul Syllables
+                 (code >= 0x1100 && code <= 0x11FF) || // Hangul Jamo
+                 (code >= 0x3130 && code <= 0x318F)) { // Hangul Compatibility Jamo
+            koreanCount++;
+            totalSpecialCount++;
+        }
+        // Arabic characters
+        else if ((code >= 0x0600 && code <= 0x06FF) || // Arabic
+                 (code >= 0x0750 && code <= 0x077F) || // Arabic Supplement
+                 (code >= 0xFB50 && code <= 0xFDFF) || // Arabic Presentation Forms-A
+                 (code >= 0xFE70 && code <= 0xFEFF)) { // Arabic Presentation Forms-B
+            arabicCount++;
+            totalSpecialCount++;
+        }
+        // Bengali characters
+        else if (code >= 0x0980 && code <= 0x09FF) {
+            bengaliCount++;
+            totalSpecialCount++;
+        }
+        // Tamil characters
+        else if (code >= 0x0B80 && code <= 0x0BFF) {
+            tamilCount++;
+            totalSpecialCount++;
+        }
+        // Thai characters
+        else if (code >= 0x0E00 && code <= 0x0E7F) {
+            thaiCount++;
+            totalSpecialCount++;
+        }
+        // Tagalog/Baybayin characters (though modern Tagalog uses Latin script)
+        else if ((code >= 0x1700 && code <= 0x171F) || // Tagalog
+                 (code >= 0x1780 && code <= 0x17FF)) { // Khmer (sometimes used in Philippines)
+            tagalogCount++;
+            totalSpecialCount++;
+        }
+    }
+    
+    console.log(`📊 Character counts: CJK=${chineseCount}, JP=${japaneseCount}, KR=${koreanCount}, AR=${arabicCount}`);
+    console.log(`📊 Total special: ${totalSpecialCount}/${text.length} (${(totalSpecialCount/text.length*100).toFixed(1)}%)`);
+    
+    // If no special characters, default to English
+    if (totalSpecialCount === 0) {
+        console.log(`✓ Result: english (no special chars)`);
+        return 'english';
+    }
+    
+    // IMPORTANT: If there's ANY Japanese-specific characters (Hiragana/Katakana),
+    // it's Japanese, even if Kanji outnumber them
+    if (japaneseCount > 0) {
+        console.log(`✓ Result: japanese (Hiragana/Katakana present: ${japaneseCount})`);
+        return 'japanese';
+    }
+    
+    // Check other languages
+    if (arabicCount > 0) {
+        console.log(`✓ Result: arabic`);
+        return 'arabic';
+    }
+    if (bengaliCount > 0) {
+        console.log(`✓ Result: bengali`);
+        return 'bengali';
+    }
+    if (tamilCount > 0) {
+        console.log(`✓ Result: tamil`);
+        return 'tamil';
+    }
+    if (thaiCount > 0) {
+        console.log(`✓ Result: thai`);
+        return 'thai';
+    }
+    if (koreanCount > 0) {
+        console.log(`✓ Result: korean`);
+        return 'korean';
+    }
+    if (chineseCount > 0) {
+        console.log(`✓ Result: chinese`);
+        return 'chinese';
+    }
+    if (tagalogCount > 0) {
+        console.log(`✓ Result: tagalog`);
+        return 'tagalog';
+    }
+    
+    // Default to English
+    console.log(`✓ Result: english (default)`);
+    return 'english';
+}
+
+/**
+ * Gets the appropriate font path for meme text (supports mixed languages)
+ * @param {string} text - The text to get font for
+ * @param {string} providedLanguage - Optional language override
+ */
+function getMemeFont(text, providedLanguage = null) {
+    let language;
+    
+    if (providedLanguage && FONTS[providedLanguage.toLowerCase()]) {
+        // Use provided language if valid
+        language = providedLanguage.toLowerCase();
+        console.log(`🔤 Using provided language: ${language} for meme text`);
+    } else {
+        // Fall back to auto-detection
+        language = detectLanguage(text);
+        console.log(`🔤 Auto-detected language: ${language} for meme text`);
+    }
+    
+    const fontPath = FONTS[language];
+    
+    if (!fs.existsSync(fontPath)) {
+        console.warn(`⚠️  Warning: Font file not found at ${fontPath}, falling back to Chinese font (supports English + Chinese)`);
+        return FONTS.chinese;
+    }
+    
+    return fontPath;
+}
+
+/**
+ * Gets the appropriate font path based on provided or detected language (for branding)
  * @param {string} text - The text to get font for
  * @param {string} providedLanguage - Optional language override
  */
@@ -486,8 +641,7 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
 /**
  * Adds only the top and bottom meme text to video (no overlay, no branding)
  * Used for the "without overlay" version
- * FIXED: Bottom text position matches second code's simpler, lower positioning
- * FIXED: Uses appropriate font that supports mixed language
+ * FIXED: Uses a single font that supports mixed language content (English + CJK/Arabic/etc.)
  */
 async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText = "", memeLanguage = null) {
     return new Promise(async (resolve, reject) => {
@@ -524,18 +678,13 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
             
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
-            // FIXED: Select font based on language - all Noto fonts support Latin characters
-            let selectedFont;
-            if (memeLanguage && FONTS[memeLanguage.toLowerCase()]) {
-                selectedFont = FONTS[memeLanguage.toLowerCase()];
-                console.log(`🔤 Using provided language font: ${memeLanguage}`);
-            } else {
-                const textToDetect = topText || bottomText || '';
-                selectedFont = textToDetect ? getFontForText(textToDetect, null) : FONTS.english;
-                console.log(`🔤 Auto-detecting font from text content`);
-            }
-            
+            // SIMPLIFIED: Use ONE font for all meme text (supports mixed English + other languages)
+            // Combine both texts to detect the dominant language
+            const combinedText = `${topText} ${bottomText}`;
+            const selectedFont = getMemeFont(combinedText, memeLanguage);
             const escapedFont = selectedFont.replace(/:/g, '\\:');
+            
+            console.log(`🔤 Using single font for all meme text: ${selectedFont}`);
 
             // Build filter complex
             let filterParts = [];
@@ -647,8 +796,7 @@ async function addMemeTextOnly(videoPath, outputPath, topText = "", bottomText =
 
 /**
  * Adds meme text with overlay and branding
- * FIXED: Bottom text position matches second code's simpler, lower positioning
- * FIXED: Uses appropriate font that supports mixed language
+ * FIXED: Uses a single font that supports mixed language content (English + CJK/Arabic/etc.)
  */
 async function addMemeText(videoPath, outputPath, topText = "", bottomText = "", projectName = "", memeLanguage = null) {
     return new Promise(async (resolve, reject) => {
@@ -688,19 +836,13 @@ async function addMemeText(videoPath, outputPath, topText = "", bottomText = "",
 
             console.log(`🔤 Font size: ${fontSize}, Stroke: ${strokeWidth}, Line height: ${lineHeight}`);
 
-            // FIXED: Use the same font for ALL text based on language parameter
-            // All Noto fonts support both their specific script and Latin characters
-            let selectedFont;
-            if (memeLanguage && FONTS[memeLanguage.toLowerCase()]) {
-                selectedFont = FONTS[memeLanguage.toLowerCase()];
-                console.log(`🔤 Using provided language font for all text: ${memeLanguage}`);
-            } else {
-                const textToDetect = topText || bottomText || projectName || '';
-                selectedFont = textToDetect ? getFontForText(textToDetect, null) : FONTS.english;
-                console.log(`🔤 Auto-detecting font from text content`);
-            }
-            
+            // SIMPLIFIED: Use ONE font for all meme text (supports mixed English + other languages)
+            // Combine both texts to detect the dominant language
+            const combinedText = `${topText} ${bottomText}`;
+            const selectedFont = getMemeFont(combinedText, memeLanguage);
             const escapedFont = selectedFont.replace(/:/g, '\\:');
+            
+            console.log(`🔤 Using single font for all meme text: ${selectedFont}`);
 
             // Check if overlay image exists
             console.log(`🔍 Checking for overlay image at: ${OVERLAY_IMAGE_PATH}`);
