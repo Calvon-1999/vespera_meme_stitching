@@ -215,6 +215,11 @@ function detectLanguage(text) {
  * Returns: 'english', 'chinese', 'japanese', 'korean', 'arabic', 'bengali', 'tamil', 'thai', or 'tagalog'
  * IMPORTANT: Japanese text uses 'chinese' font since NotoSansSC includes Hiragana/Katakana
  */
+/**
+ * Detects the primary language of the input text
+ * Returns: 'english', 'chinese', 'japanese', 'korean', 'arabic', 'bengali', 'tamil', 'thai', or 'tagalog'
+ * IMPORTANT: For CJK text (Chinese/Japanese), returns 'chinese' as NotoSansSC supports both + Latin
+ */
 function detectLanguage(text) {
     if (!text) return 'english';
     
@@ -243,7 +248,7 @@ function detectLanguage(text) {
             console.log(`   '${char}' (U+${code.toString(16).toUpperCase()}) -> CJK/Kanji`);
         }
         // Japanese-specific characters (Hiragana/Katakana)
-        // NOTE: We still detect these, but will use Chinese font for rendering
+        // NOTE: NotoSansSC also supports these
         else if ((code >= 0x3040 && code <= 0x309F) || // Hiragana
                  (code >= 0x30A0 && code <= 0x30FF)) { // Katakana
             japaneseCount++;
@@ -280,9 +285,9 @@ function detectLanguage(text) {
             thaiCount++;
             totalSpecialCount++;
         }
-        // Tagalog/Baybayin characters (though modern Tagalog uses Latin script)
+        // Tagalog/Baybayin characters
         else if ((code >= 0x1700 && code <= 0x171F) || // Tagalog
-                 (code >= 0x1780 && code <= 0x17FF)) { // Khmer (sometimes used in Philippines)
+                 (code >= 0x1780 && code <= 0x17FF)) { // Khmer
             tagalogCount++;
             totalSpecialCount++;
         }
@@ -297,10 +302,11 @@ function detectLanguage(text) {
         return 'english';
     }
     
-    // CRITICAL: If there's ANY Japanese text (Hiragana/Katakana or Kanji),
-    // use CHINESE font since NotoSansSC-Bold includes Hiragana/Katakana glyphs
+    // CRITICAL: If there's ANY CJK text (Chinese/Japanese Kanji/Hiragana/Katakana),
+    // use CHINESE font since NotoSansSC-Bold includes all CJK + Latin glyphs
+    // This handles mixed English-Chinese text perfectly
     if (japaneseCount > 0 || chineseCount > 0) {
-        console.log(`✓ Result: chinese (CJK/Japanese text detected - NotoSansSC supports both)`);
+        console.log(`✓ Result: chinese (CJK text detected - NotoSansSC supports CJK + Latin + numbers)`);
         return 'chinese';
     }
     
