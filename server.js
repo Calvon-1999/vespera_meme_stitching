@@ -42,6 +42,105 @@ app.use(express.json({ limit: "50mb" }));
 const TEMP_DIR = "/tmp";
 const OUTPUT_DIR = path.join(TEMP_DIR, "output");
 
+// File retention time (10 minutes - enough for n8n to download)
+const FILE_MAX_AGE_MINUTES = 10;
+// Cleanup interval (every 5 minutes)
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+
+// ==================== CLEANUP FUNCTIONS ====================
+
+/**
+ * Delete files older than specified minutes
+ */
+async function cleanupOldFiles(directory, maxAgeMinutes = FILE_MAX_AGE_MINUTES) {
+    try {
+        if (!fs.existsSync(directory)) {
+            return;
+        }
+        
+        console.log(`🧹 Cleaning up files older than ${maxAgeMinutes} minutes in ${directory}`);
+        const files = await fsp.readdir(directory);
+        const now = Date.now();
+        let deletedCount = 0;
+        let totalSize = 0;
+
+        for (const file of files) {
+            const filePath = path.join(directory, file);
+            try {
+                const stats = await fsp.stat(filePath);
+                const ageMinutes = (now - stats.mtimeMs) / 1000 / 60;
+                
+                if (ageMinutes > maxAgeMinutes) {
+                    totalSize += stats.size;
+                    await fsp.unlink(filePath);
+                    deletedCount++;
+                    console.log(`   ✅ Deleted: ${file} (${ageMinutes.toFixed(1)} min old, ${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+                }
+            } catch (err) {
+                // File might have been deleted by another process, skip
+                console.warn(`   ⚠️  Could not process ${file}: ${err.message}`);
+            }
+        }
+        
+        if (deletedCount > 0) {
+            console.log(`✅ Cleanup: ${deletedCount} files deleted, freed ${(totalSize / 1024 / 1024).toFixed(2)} MB`);
+        }
+    } catch (err) {
+        console.error('❌ Cleanup error:', err.message);
+    }
+}
+
+/**
+ * Safe file deletion with error handling
+ */
+async function safeDelete(filepath) {
+    try {
+        if (filepath && fs.existsSync(filepath)) {
+            const stats = await fsp.stat(filepath);
+            await fsp.unlink(filepath);
+            console.log(`🗑️  Deleted: ${path.basename(filepath)} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+            return true;
+        }
+    } catch (err) {
+        console.warn(`⚠️  Could not delete ${filepath}: ${err.message}`);
+    }
+    return false;
+}
+
+/**
+ * Delete multiple files safely
+ */
+async function safeDeleteMultiple(filepaths) {
+    let deletedCount = 0;
+    for (const filepath of filepaths) {
+        if (await safeDelete(filepath)) {
+            deletedCount++;
+        }
+    }
+    if (deletedCount > 0) {
+        console.log(`🗑️  Batch deleted ${deletedCount} files`);
+    }
+}
+
+/**
+ * Cleanup all temp and output directories
+ */
+async function cleanupAllDirectories() {
+    console.log('🧹 Running cleanup on all directories...');
+    await cleanupOldFiles(TEMP_DIR, FILE_MAX_AGE_MINUTES);
+    await cleanupOldFiles(OUTPUT_DIR, FILE_MAX_AGE_MINUTES);
+}
+
+/**
+ * Start periodic cleanup job
+ */
+function startCleanupJob() {
+    console.log(`🔄 Starting periodic cleanup job (every ${CLEANUP_INTERVAL_MS / 1000 / 60} minutes)`);
+    setInterval(() => {
+        cleanupAllDirectories();
+    }, CLEANUP_INTERVAL_MS);
+}
+
 // ==================== UTILITY FUNCTIONS ====================
 
 /**
@@ -1203,6 +1302,9 @@ async function processVideoRequest(req, res) {
     console.log('🎬 NEW VIDEO PROCESSING REQUEST');
     console.log('========================================');
 
+    // Track files to clean up
+    const filesToCleanup = [];
+
     try {
         await ensureDirectories();
 
@@ -1258,6 +1360,7 @@ async function processVideoRequest(req, res) {
                     const scenePath = path.join(TEMP_DIR, `${id}_scene${scene.scene_number}.mp4`);
                     await downloadFile(scene.generated_video, scenePath);
                     sceneVideoPaths.push(scenePath);
+                    filesToCleanup.push(scenePath);
                 }
                 
                 // Download music if available
@@ -1265,21 +1368,34 @@ async function processVideoRequest(req, res) {
                 if (musicUrl) {
                     musicPath = path.join(TEMP_DIR, `${id}_music.mp3`);
                     await downloadFile(musicUrl, musicPath);
+                    filesToCleanup.push(musicPath);
                 }
                 
                 // Concatenate scene 1, 2, 3 videos
                 console.log('\n🔗 Stitching scene videos together...');
                 const stitchedVideoPath = path.join(TEMP_DIR, `${id}_stitched.mp4`);
                 await concatenateVideos(sceneVideoPaths, stitchedVideoPath);
+                filesToCleanup.push(stitchedVideoPath);
+                
+                // Delete scene videos immediately after stitching
+                console.log('🧹 Cleaning up scene videos...');
+                await safeDeleteMultiple(sceneVideoPaths);
                 
                 // Add music overlay to stitched scenes if available
                 const videoWithMusicPath = path.join(TEMP_DIR, `${id}_with_music.mp4`);
                 if (musicPath) {
                     console.log('\n🎵 Adding music overlay to scenes...');
                     await mixVideo(stitchedVideoPath, null, musicPath, videoWithMusicPath);
+                    
+                    // Delete music file after mixing
+                    await safeDelete(musicPath);
                 } else {
                     await fsp.copyFile(stitchedVideoPath, videoWithMusicPath);
                 }
+                filesToCleanup.push(videoWithMusicPath);
+                
+                // Delete stitched video after music is added
+                await safeDelete(stitchedVideoPath);
                 
                 // Get dimensions and properties of the video with music
                 const videoProps = await getVideoDimensions(videoWithMusicPath);
@@ -1315,6 +1431,10 @@ async function processVideoRequest(req, res) {
                         })
                         .run();
                 });
+                filesToCleanup.push(recodedVideoPath);
+                
+                // Delete video with music after re-encoding
+                await safeDelete(videoWithMusicPath);
                 
                 // Re-encode outro with exact same settings and scale to match main video dimensions
                 // IMPORTANT: Audio reduced to -10dB as requested
@@ -1362,12 +1482,14 @@ async function processVideoRequest(req, res) {
                         })
                         .run();
                 });
+                filesToCleanup.push(recodedOutroPath);
                 
                 // Use concat demuxer for reliable concatenation
                 console.log('\n🎬 Concatenating with demuxer method...');
                 const concatListPath = path.join(TEMP_DIR, `${id}_concat_list.txt`);
                 const concatListContent = `file '${recodedVideoPath}'\nfile '${recodedOutroPath}'`;
                 await fsp.writeFile(concatListPath, concatListContent);
+                filesToCleanup.push(concatListPath);
                 
                 const outputPath = path.join(OUTPUT_DIR, `${id}_final.mp4`);
                 
@@ -1396,21 +1518,9 @@ async function processVideoRequest(req, res) {
                         .run();
                 });
                 
-                // Clean up temporary files
-                console.log('\n🧹 Cleaning up temporary files...');
-                try {
-                    for (const scenePath of sceneVideoPaths) {
-                        await fsp.unlink(scenePath);
-                    }
-                    if (musicPath) await fsp.unlink(musicPath);
-                    await fsp.unlink(stitchedVideoPath);
-                    await fsp.unlink(videoWithMusicPath);
-                    await fsp.unlink(recodedVideoPath);
-                    await fsp.unlink(recodedOutroPath);
-                    await fsp.unlink(concatListPath);
-                } catch (cleanupErr) {
-                    console.warn('⚠️  Cleanup warning:', cleanupErr.message);
-                }
+                // Clean up ALL temporary files immediately
+                console.log('\n🧹 Cleaning up ALL temporary files...');
+                await safeDeleteMultiple(filesToCleanup);
                 
                 const duration = ((Date.now() - startTime) / 1000).toFixed(2);
                 console.log(`\n✅ Pudgy video processing complete in ${duration}s`);
@@ -1483,13 +1593,16 @@ async function processVideoRequest(req, res) {
             // Download video
             console.log('\n📥 Downloading assets...');
             await downloadFile(videoUrl, videoPath);
+            filesToCleanup.push(videoPath);
 
             // Download audio files if provided
             if (final_dialogue) {
                 await downloadFile(final_dialogue, dialoguePath);
+                filesToCleanup.push(dialoguePath);
             }
             if (final_music_url) {
                 await downloadFile(final_music_url, musicPath);
+                filesToCleanup.push(musicPath);
             }
 
             // Generate both versions: with and without overlay
@@ -1499,11 +1612,15 @@ async function processVideoRequest(req, res) {
             if (needsMemeText) {
                 console.log('📦 Creating version without overlay (with meme text)...');
                 await addMemeTextOnly(videoPath, videoWithTextNoOverlayPath, meme_top_text, meme_bottom_text, meme_language);
+                filesToCleanup.push(videoWithTextNoOverlayPath);
                 
                 if (final_dialogue || final_music_url) {
                     await mixVideo(videoWithTextNoOverlayPath, dialoguePath, musicPath, outputPathWithoutOverlay);
+                    // Delete intermediate file after mixing
+                    await safeDelete(videoWithTextNoOverlayPath);
                 } else {
                     await fsp.copyFile(videoWithTextNoOverlayPath, outputPathWithoutOverlay);
+                    await safeDelete(videoWithTextNoOverlayPath);
                 }
             } else {
                 console.log('📦 Creating version without overlay (no meme text)...');
@@ -1517,28 +1634,20 @@ async function processVideoRequest(req, res) {
             // Version 2: With overlay (meme text + overlay + branding)
             console.log('🎨 Creating version with overlay and branding...');
             await addMemeText(videoPath, videoWithTextPath, meme_top_text, meme_bottom_text, meme_project_name, meme_language);
+            filesToCleanup.push(videoWithTextPath);
             
             if (final_dialogue || final_music_url) {
                 await mixVideo(videoWithTextPath, dialoguePath, musicPath, outputPathWithOverlay);
+                // Delete intermediate file after mixing
+                await safeDelete(videoWithTextPath);
             } else {
                 await fsp.copyFile(videoWithTextPath, outputPathWithOverlay);
+                await safeDelete(videoWithTextPath);
             }
 
-            // Clean up temporary files
-            console.log('\n🧹 Cleaning up temporary files...');
-            try {
-                await fsp.unlink(videoPath);
-                if (dialoguePath) await fsp.unlink(dialoguePath);
-                if (musicPath) await fsp.unlink(musicPath);
-                if (needsMemeText) {
-                    await fsp.unlink(videoWithTextPath);
-                    await fsp.unlink(videoWithTextNoOverlayPath);
-                } else {
-                    await fsp.unlink(videoWithTextPath);
-                }
-            } catch (cleanupErr) {
-                console.warn('⚠️  Cleanup warning:', cleanupErr.message);
-            }
+            // Clean up ALL temporary files immediately
+            console.log('\n🧹 Cleaning up ALL temporary files...');
+            await safeDeleteMultiple(filesToCleanup);
 
             const duration = ((Date.now() - startTime) / 1000).toFixed(2);
             console.log(`\n✅ Processing complete in ${duration}s`);
@@ -1564,6 +1673,10 @@ async function processVideoRequest(req, res) {
         console.error('Error:', err.message);
         console.error('Stack:', err.stack);
         console.log('========================================\n');
+        
+        // Clean up on error
+        console.log('🧹 Cleaning up after error...');
+        await safeDeleteMultiple(filesToCleanup);
         
         res.status(500).json({ 
             success: false,
@@ -1636,6 +1749,8 @@ app.get("/api/status/:uuid", (req, res) => {
 
 // Background processing function
 async function processVideoJob(uuid) {
+    const filesToCleanup = [];
+    
     try {
         const job = videoJobs.get(uuid);
         if (!job) return;
@@ -1659,6 +1774,11 @@ async function processVideoJob(uuid) {
         
         console.log(`📝 Project name for branding: ${job.projectName}`);
         
+        // Clean up uploaded image file if exists
+        if (job.imageFile) {
+            filesToCleanup.push(job.imageFile);
+        }
+        
         // Update job status with both versions
         job.status = 'stitched';
         job.downloads = {
@@ -1669,6 +1789,9 @@ async function processVideoJob(uuid) {
         
         console.log(`✅ Video job completed: ${uuid}`);
         
+        // Clean up temp files
+        await safeDeleteMultiple(filesToCleanup);
+        
     } catch (error) {
         console.error(`❌ Error processing video job ${uuid}:`, error);
         const job = videoJobs.get(uuid);
@@ -1676,11 +1799,23 @@ async function processVideoJob(uuid) {
             job.status = 'failed';
             job.error_message = error.message;
         }
+        
+        // Clean up on error
+        await safeDeleteMultiple(filesToCleanup);
     }
 }
 
 // Serve the output videos
 app.use("/download", express.static(OUTPUT_DIR));
+
+// Run initial cleanup on startup
+(async () => {
+    console.log('🧹 Running initial cleanup on server startup...');
+    await cleanupAllDirectories();
+})();
+
+// Start periodic cleanup job
+startCleanupJob();
 
 // Start server
 app.listen(PORT, () => {
@@ -1689,6 +1824,8 @@ app.listen(PORT, () => {
     console.log(`📍 Running on: http://localhost:${PORT}`);
     console.log(`🏥 Health check: http://localhost:${PORT}/health`);
     console.log(`📁 Output directory: ${OUTPUT_DIR}`);
+    console.log(`🧹 File retention: ${FILE_MAX_AGE_MINUTES} minutes`);
+    console.log(`🔄 Cleanup interval: ${CLEANUP_INTERVAL_MS / 1000 / 60} minutes`);
     console.log(`🎨 Fonts configured (Noto Sans family):`);
     console.log(`   - English: ${FONTS.english}`);
     console.log(`   - Chinese (Simplified): ${FONTS.chinese}`);
