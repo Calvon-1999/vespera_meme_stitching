@@ -1295,6 +1295,87 @@ app.get("/health", (req, res) => {
     res.json({ status: "healthy", timestamp: new Date().toISOString() });
 });
 
+// Music Video Overlay endpoint - adds black bar with branding
+app.post("/music-video-overlay", async (req, res) => {
+    const startTime = Date.now();
+    console.log('\n========================================');
+    console.log('🎵 NEW MUSIC VIDEO OVERLAY REQUEST');
+    console.log('========================================');
+
+    const filesToCleanup = [];
+
+    try {
+        await ensureDirectories();
+
+        const requestData = Array.isArray(req.body) && req.body.length > 0 
+            ? req.body[0] 
+            : req.body;
+        
+        const {
+            final_video_url,
+            meme_project_name
+        } = requestData;
+
+        console.log('📋 Request parameters:');
+        console.log('   Video URL:', final_video_url ? '✅' : '❌');
+        console.log('   Project name:', meme_project_name || '(none)');
+
+        if (!final_video_url) {
+            console.error('❌ Missing video URL');
+            return res.status(400).json({ error: "Missing required input: final_video_url" });
+        }
+
+        // Generate unique ID for this processing job
+        const id = uuidv4();
+        console.log('🆔 Job ID:', id);
+
+        // Define file paths
+        const videoPath = path.join(TEMP_DIR, `${id}_video.mp4`);
+        const outputPath = path.join(OUTPUT_DIR, `${id}_music_overlay.mp4`);
+
+        // Download video
+        console.log('\n📥 Downloading video...');
+        await downloadFile(final_video_url, videoPath);
+        filesToCleanup.push(videoPath);
+
+        // Add branding with black bar
+        console.log('\n🎨 Adding black bar with branding...');
+        await addBrandingOnly(videoPath, outputPath, meme_project_name || '');
+
+        // Clean up temporary files
+        console.log('\n🧹 Cleaning up temporary files...');
+        await safeDeleteMultiple(filesToCleanup);
+
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        console.log(`\n✅ Music video overlay complete in ${duration}s`);
+        console.log('========================================\n');
+
+        res.json({
+            success: true,
+            message: "Music video overlay with branding added",
+            processing_time: `${duration}s`,
+            job_id: id,
+            download: `/download/${path.basename(outputPath)}`
+        });
+
+    } catch (err) {
+        console.error('\n❌ MUSIC VIDEO OVERLAY FAILED');
+        console.error('Error:', err.message);
+        console.error('Stack:', err.stack);
+        console.log('========================================\n');
+        
+        // Clean up on error
+        console.log('🧹 Cleaning up after error...');
+        await safeDeleteMultiple(filesToCleanup);
+        
+        res.status(500).json({ 
+            success: false,
+            error: "Music video overlay failed", 
+            details: err.message 
+        });
+    }
+});
+
 // Main processing function (used by both endpoints)
 async function processVideoRequest(req, res) {
     const startTime = Date.now();
