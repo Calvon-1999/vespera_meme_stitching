@@ -633,23 +633,45 @@ async function concatenateVideos(videoPaths, outputPath) {
 }
 
 /**
- * Adds branding text to video (bottom-left corner)
- * For Pudgy projects - no overlay, no meme text, just brand
+ * Adds black bar overlay and branding text to video (bottom)
+ * For music videos and Pudgy projects - overlay + branding, no meme text
  * FIXED: Split branding so "luna.fun/memes/" uses English font and project name uses appropriate language font only if it contains non-Latin characters
  */
 async function addBrandingOnly(videoPath, outputPath, projectName) {
     return new Promise(async (resolve, reject) => {
         try {
-            console.log('🏷️  Adding branding only');
+            console.log('🏷️  Adding black bar overlay with branding');
             
             const { width, height } = await getVideoDimensions(videoPath);
             console.log(`📐 Video dimensions: ${width}x${height}`);
+
+            // Check if overlay image exists
+            console.log(`🔍 Checking for overlay image at: ${OVERLAY_IMAGE_PATH}`);
+            const hasOverlay = fs.existsSync(OVERLAY_IMAGE_PATH);
+            console.log(`📁 Overlay image exists: ${hasOverlay}`);
+            
+            if (!hasOverlay) {
+                console.error('❌ Overlay image not found! Cannot proceed.');
+                return reject(new Error(`Overlay image not found at ${OVERLAY_IMAGE_PATH}`));
+            }
+
+            const overlayDimensions = await getImageDimensions(OVERLAY_IMAGE_PATH);
+            console.log(`📐 Overlay image dimensions: ${overlayDimensions.width}x${overlayDimensions.height}`);
+            
+            // Use overlay at native size
+            const overlayWidth = overlayDimensions.width;
+            const overlayHeight = overlayDimensions.height;
+            
+            // Position at bottom of video
+            const overlayX = Math.floor((width - overlayWidth) / 2);
+            const overlayY = height - overlayHeight;
+            console.log(`📍 Overlay position: x=${overlayX}, y=${overlayY}`);
 
             const brandingFontSize = 18;
             const brandingStrokeWidth = 1;
             const brandingX = 20;
             // ADJUSTED: Move down by additional 8px to center on black bar (was -20, now -12)
-            const brandingY = height - brandingFontSize - 14;
+            const brandingY = height - brandingFontSize - 12;
 
             // Split branding into two parts
             const brandingPrefix = 'luna.fun/memes/';
@@ -674,11 +696,18 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
 
             console.log(`🔤 Branding: English font for prefix, ${detectedLanguage} font for project name "${projectName}" (Y offset: ${projectNameY - brandingY}px, closer spacing)`);
 
-            // Step 1: Add the prefix "luna.fun/memes/" with English font
-            // Step 2: Add the project name with appropriate font, positioned after the prefix
-            // IMPORTANT: Both use explicit Y positions with colon separator and line_spacing for alignment
-            const filterComplex =
-                `[0:v]drawtext=fontfile='${englishFont}':` +
+            // Build filter complex step by step
+            let filterParts = [];
+            
+            // Step 1: Load overlay image (black bar)
+            filterParts.push(`movie='${OVERLAY_IMAGE_PATH.replace(/'/g, "'\\\\''").replace(/:/g, '\\:')}'[overlay]`);
+            
+            // Step 2: Overlay the black bar image on the video
+            filterParts.push(`[0:v][overlay]overlay=${overlayX}:${overlayY}[v1]`);
+            
+            // Step 3: Add the prefix "luna.fun/memes/" with English font
+            filterParts.push(
+                `[v1]drawtext=fontfile='${englishFont}':` +
                 `text='${escapedPrefix}':` +
                 `fontcolor=white:` +
                 `fontsize=${brandingFontSize}:` +
@@ -689,8 +718,12 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
                 `shadowy=2:` +
                 `x=${brandingX}:` +
                 `y=${brandingY}:` +
-                `line_spacing=0[v1];` +
-                `[v1]drawtext=fontfile='${escapedProjectFont}':` +
+                `line_spacing=0[v2]`
+            );
+            
+            // Step 4: Add the project name with appropriate font, positioned after the prefix
+            filterParts.push(
+                `[v2]drawtext=fontfile='${escapedProjectFont}':` +
                 `text='${escapedProjectName}':` +
                 `fontcolor=white:` +
                 `fontsize=${brandingFontSize}:` +
@@ -701,7 +734,11 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
                 `shadowy=2:` +
                 `x=${projectNameX}:` +
                 `y=${projectNameY}:` +
-                `line_spacing=0[outv]`;
+                `line_spacing=0[outv]`
+            );
+
+            const filterComplex = filterParts.join(';');
+            console.log(`🎬 Filter complex parts: ${filterParts.length}`);
 
             ffmpeg(videoPath)
                 .complexFilter(filterComplex)
@@ -714,14 +751,14 @@ async function addBrandingOnly(videoPath, outputPath, projectName) {
                     '-c:a', 'copy'
                 ])
                 .output(outputPath)
-                .on('start', (cmd) => console.log('🚀 FFmpeg branding started'))
+                .on('start', (cmd) => console.log('🚀 FFmpeg branding with overlay started'))
                 .on('progress', (progress) => {
                     if (progress.percent) {
                         console.log(`⏳ Branding progress: ${progress.percent.toFixed(1)}%`);
                     }
                 })
                 .on('end', () => {
-                    console.log('✅ Branding added successfully');
+                    console.log('✅ Black bar overlay and branding added successfully');
                     resolve(outputPath);
                 })
                 .on('error', (err) => {
